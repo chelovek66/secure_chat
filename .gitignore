@@ -1,0 +1,49 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions / build artifacts
+build/
+dist/
+*.spec
+secure_chat/bee2/build/
+secure_chat/bee2/bee2/build/
+
+# Staging, backup, and release distributions
+staging/
+backup/
+release/
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+# IDE and Editor configurations
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Unit test and coverage caches
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Databases and runtime data
+*.db
+*.sqlite
+*.sqlite3
+server/*.db
+secure_chat/server/*.db
+
+# Logs and runtime exports
+logs/
+*.log
+*.csv
+
+# Temporary assignment task notes and instructions
+pz*.txt
+tz*.txt

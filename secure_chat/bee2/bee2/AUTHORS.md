@@ -1,0 +1,62 @@
+Credits
+=======
+
+Developement lead
+-----------------
+
+- Sergey Agievich
+
+Authors
+-------
+
+- Vlad Semenov
+  - core/der, crypto/bash, crypto/bpki, crypto/btok
+  - code review
+- Stanislav Poruchnik
+  - SAFE(math/zz)
+
+Contributors*
+------------
+
+- Oleg Solovey
+  - code review
+- Michael Koypish
+  - code review
+- Stanislav Lipnickii
+  - static analysis
+- Nastya Kozlovskaya
+  - logo
+  - code checks
+- Alexander Usikov
+  - code review
+- Mikhail Novik
+  - doc review
+- Oleg Vasilyev
+  - code review
+- Yury Kashcheyeu
+  - [RPM packages](https://copr.fedorainfracloud.org/coprs/kashcheyeu/bee2/)
+- Egor Lawrenov
+  - code review
+- Mikhail Maltsew
+  - code review
+- Uladzimir Palukha
+  - code review
+- Mikhail Mitskevich
+  - build scripts, Github Actions, Docker
+  - license issues
+  - bign/params
+  - code review
+  - memory alignment
+- Alexander Zhirkevich
+  - cmd/sig, cmd/rng, cmd/test
+- Vladimir Komisarenko
+  - fuzzing
+- Victor Shulhat
+  - benchmarks (belt, bign, bash)
+- Fedor Dasko
+  - code review
+- Arseni Novikau
+  - code review
+
+---
+*in addition to the Github list; in chronological order of the first contribution

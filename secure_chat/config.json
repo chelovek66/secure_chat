@@ -1,0 +1,10 @@
+{
+    "server_url": "http://127.0.0.1:8000",
+    "poll_interval_sec": 2.0,
+    "request_timeout_sec": 10.0,
+    "keys_dir": "keys",
+    "theme": "dark",
+    "log_level": "ERROR",
+    "verify_integrity_on_startup": true,
+    "auto_reconnect": true
+}

@@ -1,0 +1,43 @@
+# Build and run tests on Windows x64
+
+name: windows
+
+on:
+  push:
+    branches: arch
+  pull_request:
+    branches: arch
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+        - BUILD_TYPE: Release
+          BUILD_FAST: OFF
+          BASH_PLATFORM: BASH_64
+    steps:
+    - name: Get source
+      uses: actions/checkout@v7
+    - name: Add path to MinGW
+      run: |
+        $env:PATH = "C:\msys64\usr\bin;$env:PATH"
+    - name: Get CMake
+      uses: symbitic/install-cmake@master
+    - name: Configure CMake
+      run: > 
+        cmake -B ${{github.workspace}}/build 
+        -DCMAKE_BUILD_TYPE=${{matrix.BUILD_TYPE}} 
+        -DBUILD_FAST=${{matrix.BUILD_FAST}} 
+        -DBASH_PLATFORM=${{matrix.BASH_PLATFORM}} -G "MinGW Makefiles"
+    - name: Build
+      run: cmake --build ${{github.workspace}}/build 
+    - name: Test
+      working-directory: ${{github.workspace}}/build
+      run: ctest --verbose
+    - name: Test bee2cmd
+      working-directory: ${{github.workspace}}/build/cmd
+      run: cp ../../cmd/test/* . && ./test.sh
+      shell: bash

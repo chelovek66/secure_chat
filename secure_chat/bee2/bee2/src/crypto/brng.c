@@ -1,0 +1,299 @@
+/*
+*******************************************************************************
+\file brng.c
+\brief STB 34.101.47 (brng): algorithms of pseudorandom number generation
+\project bee2 [cryptographic library]
+\created 2013.01.31
+\version 2025.10.02
+\copyright The Bee2 authors
+\license Licensed under the Apache License, Version 2.0 (see LICENSE.txt).
+*******************************************************************************
+*/
+
+#include "bee2/core/blob.h"
+#include "bee2/core/err.h"
+#include "bee2/core/mem.h"
+#include "bee2/core/util.h"
+#include "bee2/core/word.h"
+#include "bee2/crypto/belt.h"
+#include "bee2/crypto/brng.h"
+
+/*
+*******************************************************************************
+Операции над блоками
+*******************************************************************************
+*/
+
+static void brngBlockInc(octet block[32])
+{
+	enum {n = W_OF_O(32)};
+	register word carry = 1;
+	size_t i;
+	word* b;
+	ASSERT(memIsAligned(block, O_PER_W));
+	b = (word*)block;
+	for (i = 0; i < n - 1; ++i)
+	{
+#if (OCTET_ORDER == BIG_ENDIAN)
+		b[i] = wordRev(b[i]);
+#endif
+		b[i] += carry, carry = wordLess(b[i], carry);
+#if (OCTET_ORDER == BIG_ENDIAN)
+		b[i] = wordRev(b[i]);
+#endif
+	}
+	b[n - 1] += carry;
+	CLEAN(carry);
+}
+
+/*
+*******************************************************************************
+Генерация в режиме CTR
+
+В brng_ctr_st::stack размещаются два состояния beltHash:
+-	вспомогательное состояние;
+-	состояние beltHash(key ||....).
+*******************************************************************************
+*/
+typedef struct
+{
+	octet s[32];			/*< переменная s */
+	octet r[32];			/*< переменная r */
+	octet block[32];		/*< блок выходных данных */
+	size_t reserved;		/*< резерв выходных октетов */
+	mem_align_t stack[];	/*< 2 состояния beltHash */
+} brng_ctr_st;
+
+size_t brngCTR_keep()
+{
+	return sizeof(brng_ctr_st) + 
+		memSliceSize(beltHash_keep(), beltHash_keep(), SIZE_MAX);
+}
+
+void brngCTRStart(void* state, const octet key[32], const octet iv[32])
+{
+	brng_ctr_st* s = (brng_ctr_st*)state;
+	ASSERT(memIsDisjoint2(s, brngCTR_keep(), key, 32));
+	ASSERT(iv == 0 || memIsDisjoint2(s, brngCTR_keep(), iv, 32));
+	// обработать key
+	beltHashStart(memSliceNext(s->stack, beltHash_keep()));
+	beltHashStepH(key, 32, memSliceNext(s->stack, beltHash_keep()));
+	//	сохранить iv
+	if (iv)
+		memCopy(s->s, iv, 32);
+	else
+		memSetZero(s->s, 32);
+	//	r <- ~s
+	memCopy(s->r, s->s, 32);
+	memNeg(s->r, 32);
+	// нет выходных данных
+	s->reserved = 0;
+}
+
+void brngCTRStepR(void* buf, size_t count, void* state)
+{
+	brng_ctr_st* s = (brng_ctr_st*)state;
+	ASSERT(memIsDisjoint2(buf, count, s, brngCTR_keep()));
+	// есть резерв данных?
+	if (s->reserved)
+	{
+		if (s->reserved >= count)
+		{
+			memCopy(buf, s->block + 32 - s->reserved, count);
+			s->reserved -= count;
+			return;
+		}
+		memCopy(buf, s->block + 32 - s->reserved, s->reserved);
+		count -= s->reserved;
+		buf = (octet*)buf + s->reserved;
+		s->reserved = 0;
+	}
+	// цикл по полным блокам
+	while (count >= 32)
+	{
+		// Y_t <- belt-hash(key || s || X_t || r)
+		memCopy(s->stack, memSliceNext2(s->stack, beltHash_keep()), 
+			beltHash_keep());
+		beltHashStepH(s->s, 32, s->stack);
+		beltHashStepH(buf, 32, s->stack);
+		beltHashStepH(s->r, 32, s->stack);
+		beltHashStepG(buf, s->stack);
+		// next
+		brngBlockInc(s->s);
+		memXor2(s->r, buf, 32);
+		buf = (octet*)buf + 32;
+		count -= 32;
+	}
+	// неполный блок?
+	if (count)
+	{
+		// block <- beltHash(key || s || zero_pad(X_t) || r)
+		memSetZero(s->block + count, 32 - count);
+		memCopy(s->stack, memSliceNext2(s->stack, beltHash_keep()), 
+			beltHash_keep());
+		beltHashStepH(s->s, 32, s->stack);
+		beltHashStepH(buf, count, s->stack);
+		beltHashStepH(s->block + count, 32 - count, s->stack);
+		beltHashStepH(s->r, 32, s->stack);
+		beltHashStepG(s->block, s->stack);
+		// Y_t <- left(block)
+		memCopy(buf, s->block, count);
+		// next
+		brngBlockInc(s->s);
+		memXor2(s->r, s->block, 32);
+		s->reserved = 32 - count;
+	}
+}
+
+void brngCTRStepG(octet iv[32], void* state)
+{
+	brng_ctr_st* s = (brng_ctr_st*)state;
+	ASSERT(memIsDisjoint2(s, brngCTR_keep(), iv, 32));
+	memCopy(iv, s->s, 32);
+}
+
+err_t brngCTRRand(void* buf, size_t count, const octet key[32], octet iv[32])
+{
+	void* state;
+	// проверить входные данные
+	if (!memIsValid(key, 32) ||
+		!memIsValid(iv, 32) ||
+		!memIsValid(buf, count))
+		return ERR_BAD_INPUT;
+	// создать состояние
+	state = blobCreate(brngCTR_keep());
+	if (state == 0)
+		return ERR_OUTOFMEMORY;
+	// сгенерировать данные
+	brngCTRStart(state, key, iv);
+	brngCTRStepR(buf, count, state);
+	brngCTRStepG(iv, state);
+	// завершить
+	blobClose(state);
+	return ERR_OK;
+}
+
+/*
+*******************************************************************************
+Генерация в режиме HMAC
+
+В brng_hmac_st::stack размещаются два beltHMAC-состояния:
+-	вспомогательное состояние;
+-	состояние beltHMAC(key, ...).
+
+\remark Учитывается инкрементальность beltHMAC
+*******************************************************************************
+*/
+typedef struct
+{
+	const octet* iv;			/*< указатель на синхропосылку */
+	octet iv_buf[64];			/*< синхропосылка (если укладывается) */
+	size_t iv_len;				/*< длина синхропосылки в октетах */
+	octet r[32];				/*< переменная r */
+	octet block[32];			/*< блок выходных данных */
+	size_t reserved;			/*< резерв выходных октетов */
+	mem_align_t stack[];		/*< 2 состояния beltHMAC */
+} brng_hmac_st;
+
+size_t brngHMAC_keep()
+{
+	return sizeof(brng_hmac_st) + 
+		memSliceSize(beltHMAC_keep(), beltHMAC_keep(), SIZE_MAX);
+}
+
+void brngHMACStart(void* state, const octet key[], size_t key_len, 
+	const octet iv[], size_t iv_len)
+{
+	brng_hmac_st* s = (brng_hmac_st*)state;
+	ASSERT(memIsDisjoint2(s, brngHMAC_keep(), key, key_len));
+	ASSERT(memIsDisjoint2(s, brngHMAC_keep(), iv, iv_len));
+	// запомнить iv
+	if ((s->iv_len = iv_len) <= 64) 
+	{
+		memCopy(s->iv_buf, iv, iv_len);
+		s->iv = s->iv_buf;
+	}
+	else
+		s->iv = iv;
+	// обработать key
+	beltHMACStart(memSliceNext(s->stack, beltHMAC_keep()), key, key_len);
+	// r <- beltHMAC(key, iv)
+	memCopy(s->stack, memSliceNext2(s->stack, beltHMAC_keep()), 
+		beltHMAC_keep());
+	beltHMACStepA(iv, iv_len, s->stack);
+	beltHMACStepG(s->r, s->stack);
+	// нет выходных данных
+	s->reserved = 0;
+}
+
+void brngHMACStepR(void* buf, size_t count, void* state)
+{
+	brng_hmac_st* s = (brng_hmac_st*)state;
+	ASSERT(memIsDisjoint2(buf, count, s, brngHMAC_keep()));
+	// есть резерв данных?
+	if (s->reserved)
+	{
+		if (s->reserved >= count)
+		{
+			memCopy(buf, s->block + 32 - s->reserved, count);
+			s->reserved -= count;
+			return;
+		}
+		memCopy(buf, s->block + 32 - s->reserved, s->reserved);
+		count -= s->reserved;
+		buf = (octet*)buf + s->reserved;
+		s->reserved = 0;
+	}
+	// цикл по полным блокам
+	while (count >= 32)
+	{
+		// r <- beltHMAC(key, r) 
+		memCopy(s->stack, memSliceNext2(s->stack, beltHMAC_keep()), 
+			beltHMAC_keep());
+		beltHMACStepA(s->r, 32, s->stack);
+		beltHMACStepG(s->r, s->stack);
+		// Y_t <- beltHMAC(key, r || iv)
+		beltHMACStepA(s->iv, s->iv_len, s->stack);
+		beltHMACStepG(buf, s->stack);
+		// next
+		buf = (octet*)buf + 32;
+		count -= 32;
+	}
+	// неполный блок?
+	if (count)
+	{
+		// r <- beltHMAC(key, r) 
+		memCopy(s->stack, memSliceNext(s->stack, beltHMAC_keep()), 
+			beltHMAC_keep());
+		beltHMACStepA(s->r, 32, s->stack);
+		beltHMACStepG(s->r, s->stack);
+		// Y_t <- left(beltHMAC(key, r || iv))
+		beltHMACStepA(s->iv, s->iv_len, s->stack);
+		beltHMACStepG(s->block, s->stack);
+		memCopy(buf, s->block, count);
+		// next
+		s->reserved = 32 - count;
+	}
+}
+
+err_t brngHMACRand(void* buf, size_t count, const octet key[], size_t key_len,
+	const octet iv[], size_t iv_len)
+{
+	void* state;
+	// проверить входные данные
+	if (!memIsValid(key, key_len) ||
+		!memIsValid(iv, iv_len) ||
+		!memIsValid(buf, count) ||
+		!memIsDisjoint2(buf, count, iv, iv_len))
+		return ERR_BAD_INPUT;
+	// создать состояние
+	state = blobCreate(brngHMAC_keep());
+	if (state == 0)
+		return ERR_OUTOFMEMORY;
+	// сгенерировать данные
+	brngHMACStart(state, key, key_len, iv, iv_len);
+	brngHMACStepR(buf, count, state);
+	// завершить
+	blobClose(state);
+	return ERR_OK;
+}

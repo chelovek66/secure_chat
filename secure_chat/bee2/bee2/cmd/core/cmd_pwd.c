@@ -1,0 +1,552 @@
+/*
+*******************************************************************************
+\file cmd_pwd.c
+\brief Command-line interface to Bee2: password management
+\project bee2/cmd 
+\created 2022.06.13
+\version 2025.09.26
+\copyright The Bee2 authors
+\license Licensed under the Apache License, Version 2.0 (see LICENSE.txt).
+*******************************************************************************
+*/
+
+#include <stdlib.h>
+#include <bee2/core/blob.h>
+#include <bee2/core/dec.h>
+#include <bee2/core/err.h>
+#include <bee2/core/hex.h>
+#include <bee2/core/mem.h>
+#include <bee2/core/rng.h>
+#include <bee2/core/str.h>
+#include <bee2/core/util.h>
+#include <bee2/crypto/belt.h>
+#include <bee2/crypto/bels.h>
+#include <bee2/crypto/bpki.h>
+#include "bee2/cmd.h"
+
+/*
+*******************************************************************************
+Управление паролями: базовые функции
+*******************************************************************************
+*/
+
+cmd_pwd_t cmdPwdCreate(size_t size)
+{
+	return (cmd_pwd_t)blobCreate(size + 1);
+}
+
+bool_t cmdPwdIsValid(const cmd_pwd_t pwd)
+{
+	return strIsValid(pwd) && blobIsValid(pwd) &&
+		pwd[blobSize(pwd) - 1] == '\0';
+}
+
+void cmdPwdClose(cmd_pwd_t pwd)
+{
+	ASSERT(pwd == 0 || cmdPwdIsValid(pwd));
+	blobClose(pwd);
+}
+
+/*
+*******************************************************************************
+Управление паролями: схема pass
+*******************************************************************************
+*/
+
+static err_t cmdPwdGenPass(cmd_pwd_t* pwd, const char* str)
+{
+	return ERR_NOT_IMPLEMENTED;
+}
+
+static err_t cmdPwdReadPass(cmd_pwd_t* pwd, const char* str)
+{
+	ASSERT(memIsValid(pwd, sizeof(cmd_pwd_t)));
+	ASSERT(strIsValid(str));
+	// создать пароль
+	if (!(*pwd = cmdPwdCreate(strLen(str))))
+		return ERR_OUTOFMEMORY;
+	strCopy(*pwd, str);
+	return ERR_OK;
+}
+
+/*
+*******************************************************************************
+Управление паролями: схема env
+*******************************************************************************
+*/
+
+static const char* cmdEnvGet(const char* name)
+{
+	const char* val;
+	val = getenv(name);
+	return strIsValid(val) ? val : 0;
+}
+
+static err_t cmdPwdGenEnv(cmd_pwd_t* pwd, const char* str)
+{
+	return ERR_NOT_IMPLEMENTED;
+}
+
+static err_t cmdPwdReadEnv(cmd_pwd_t* pwd, const char* str)
+{
+	const char* val;
+	// pre
+	ASSERT(memIsValid(pwd, sizeof(cmd_pwd_t)));
+	ASSERT(strIsValid(str));
+	// читать пароль из переменной окружения
+	if (!(val = cmdEnvGet(str)))
+		return ERR_BAD_ENV;
+	// возвратить пароль
+	if (!(*pwd = cmdPwdCreate(strLen(val))))
+		return ERR_OUTOFMEMORY;
+	strCopy(*pwd, val);
+	return ERR_OK;
+}
+
+/*
+*******************************************************************************
+Управление паролями: схема share
+*******************************************************************************
+*/
+
+static err_t cmdPwdGenShare_internal(cmd_pwd_t* pwd, size_t scount,
+	size_t threshold, size_t len, bool_t crc, char* shares[],
+	const cmd_pwd_t spwd)
+{
+	err_t code;
+	const size_t iter = 10000;
+	size_t epki_len;
+	void* state;
+	octet* pwd_bin;				/* [len] */
+	octet* share;				/* [scount * (len + 1)] */
+	octet* mac_state;			/* [beltMAC_keep()] (|share) */
+	octet* salt;				/* [8] */
+	octet* epki;				/* [epki_len] */
+	// pre
+	ASSERT(memIsValid(pwd, sizeof(cmd_pwd_t)));
+	ASSERT(cmdPwdIsValid(spwd));
+	ASSERT(2 <= scount && scount <= 16);
+	ASSERT(2 <= threshold && threshold <= scount);
+	ASSERT(len % 8 == 0 && len <= 32);
+	ASSERT(!crc || len != 16);
+	// пароль пока не создан
+	*pwd = 0;
+	// определить длину пароля
+	if (len == 0)
+		len = 32;
+	// определить длину контейнера с частичным секретом
+	code = bpkiShareWrap(0, &epki_len, 0, len + 1, 0, 0, 0, iter);
+	ERR_CALL_CHECK(code);
+	// запустить ГСЧ
+	code = cmdRngStart(TRUE);
+	ERR_CALL_CHECK(code);
+	// выделить и разметить память
+	code = cmdBlobCreate2(state, 
+		len,
+		scount * (len + 1),
+		beltMAC_keep() | SIZE_HI,
+		(size_t)8,
+		epki_len,
+		SIZE_MAX,
+		&pwd_bin, &share, &mac_state, &salt, &epki);
+	ERR_CALL_CHECK(code);
+	// генерировать пароль
+	if (crc)
+	{
+		rngStepR(pwd_bin, len - 8, 0);
+		beltMACStart(mac_state, pwd_bin, len - 8);
+		beltMACStepA(pwd_bin, len - 8, mac_state);
+		beltMACStepG(pwd_bin + len - 8, mac_state);
+	}
+	else
+		rngStepR(pwd_bin, len, 0);
+	// разделить пароль на частичные секреты
+	code = belsShare2(share, scount, threshold, len, pwd_bin, rngStepR, 0);
+	ERR_CALL_HANDLE(code, cmdBlobClose(state));
+	// обновить ключ ГСЧ
+	rngRekey();
+	// защитить частичные секреты
+	for (; scount--; share += (len + 1), ++shares)
+	{
+		// установить защиту
+		rngStepR(salt, 8, 0);
+		code = bpkiShareWrap(epki, 0, share, len + 1, (const octet*)spwd,
+			cmdPwdLen(spwd), salt, iter);
+		ERR_CALL_HANDLE(code, cmdBlobClose(state));
+		// записать в файл
+		code = cmdFileWrite(*shares, epki, epki_len);
+		ERR_CALL_HANDLE(code, cmdBlobClose(state));
+	}
+	// создать выходной (текстовый) пароль
+	*pwd = cmdPwdCreate(2 * len);
+	code = *pwd ? ERR_OK : ERR_OUTOFMEMORY;
+	ERR_CALL_HANDLE(code, cmdBlobClose(state));
+	hexFrom(*pwd, pwd_bin, len);
+	cmdBlobClose(state);
+	return code;
+}
+
+static err_t cmdPwdReadShare_internal(cmd_pwd_t* pwd, size_t scount,
+	size_t len, bool_t crc, char* shares[], const cmd_pwd_t spwd)
+{
+	err_t code;
+	size_t epki_len;
+	size_t epki_len_min;
+	size_t epki_len_max;
+	void* state;
+	octet* share;			/* [scount * (len + 1)] */
+	octet* mac_state;		/* [beltMAC_keep()] */
+	octet* epki;			/* [epki_len_max + 1] */
+	octet* pwd_bin;			/* [len] */
+	size_t pos;
+	// pre
+	ASSERT(memIsValid(pwd, sizeof(cmd_pwd_t)));
+	ASSERT(cmdPwdIsValid(spwd));
+	ASSERT(2 <= scount && scount <= 16);
+	ASSERT(len % 8 == 0 && len <= 32);
+	ASSERT(!crc || len != 16);
+	// пароль пока не создан
+	*pwd = 0;
+	// определить длину частичного секрета
+	if (len == 0)
+	{
+		// определить размер первого файла с частичным секретом
+		if ((epki_len = cmdFileSize(shares[0])) == SIZE_MAX)
+			return ERR_FILE_READ;
+		// найти подходящую длину
+		for (len = 16; len <= 32; len += 8)
+		{
+			code = bpkiShareWrap(0, &epki_len_min, 0, len + 1, 0, 0, 0, 10000);
+			ERR_CALL_CHECK(code);
+			code = bpkiShareWrap(0, &epki_len_max, 0, len + 1, 0, 0, 0, 
+				SIZE_MAX);
+			ERR_CALL_CHECK(code);
+			if (epki_len_min <= epki_len && epki_len <= epki_len_max)
+				break;
+		}
+		if (len > 32)
+			return ERR_BAD_FORMAT;
+	}
+	else
+	{
+		code = bpkiShareWrap(0, &epki_len_min, 0, len + 1, 0, 0, 0, 10000);
+		ERR_CALL_CHECK(code);
+		code = bpkiShareWrap(0, &epki_len_max, 0, len + 1, 0, 0, 0,	SIZE_MAX);
+		ERR_CALL_CHECK(code);
+	}
+	// выделить и разметить память
+	code = cmdBlobCreate2(state, 
+		scount * (len + 1),
+		beltMAC_keep() | SIZE_HI,
+		epki_len_max + 1,
+		len,
+		SIZE_MAX,
+		&share, &mac_state, &epki, &pwd_bin);
+	ERR_CALL_HANDLE(code, cmdPwdClose(*pwd));
+	// прочитать частичные секреты
+	for (pos = 0; pos < scount; ++pos, ++shares)
+	{
+		size_t share_len;
+		// определить длину контейнера
+		code = cmdFileReadAll(0, &epki_len, *shares);
+		ERR_CALL_HANDLE(code, cmdBlobClose(state));
+		// проверить длину
+		code = (epki_len_min <= epki_len && epki_len <= epki_len_max) ?
+			ERR_OK : ERR_BAD_FORMAT;
+		ERR_CALL_HANDLE(code, cmdBlobClose(state));
+		// читать
+		code = cmdFileReadAll(epki, &epki_len, *shares);
+		ERR_CALL_HANDLE(code, cmdBlobClose(state));
+		// декодировать
+		code = bpkiShareUnwrap(share + pos * (len + 1), &share_len,
+			epki, epki_len, (const octet*)spwd, cmdPwdLen(spwd));
+		ERR_CALL_HANDLE(code, cmdBlobClose(state));
+		code = (share_len == len + 1) ? ERR_OK : ERR_BAD_FORMAT;
+		ERR_CALL_HANDLE(code, cmdBlobClose(state));
+	}
+	// собрать пароль
+	code = belsRecover2(pwd_bin, scount, len, share);
+	ERR_CALL_HANDLE(code, cmdBlobClose(state));
+	// проверить пароль
+	if (crc)
+	{
+		beltMACStart(mac_state, pwd_bin, len - 8);
+		beltMACStepA(pwd_bin, len - 8, mac_state);
+		if (!beltMACStepV(pwd_bin + len - 8, mac_state))
+			code = ERR_BAD_CRC;
+	}
+	ERR_CALL_HANDLE(code, cmdBlobClose(state));
+	// создать выходной (текстовый) пароль
+	*pwd = cmdPwdCreate(2 * len);
+	code = *pwd ? ERR_OK : ERR_OUTOFMEMORY;
+	ERR_CALL_HANDLE(code, cmdBlobClose(state));
+	hexFrom(*pwd, pwd_bin, len);
+	cmdBlobClose(state);
+	return code;
+}
+
+static err_t cmdPwdGenShare(cmd_pwd_t* pwd, const char* str)
+{
+	err_t code;
+	int argc;
+	char** argv = 0;
+	size_t offset = 0;
+	size_t threshold = 0;
+	size_t len = 0;
+	bool_t crc = FALSE;
+	cmd_pwd_t spwd = 0;
+	// составить список аргументов
+	code = cmdArgCreate(&argc, &argv, str);
+	ERR_CALL_CHECK(code);
+	// обработать опции
+	while (argc && strStartsWith(argv[offset], "-"))
+	{
+		// порог
+		if (strStartsWith(argv[offset], "-t"))
+		{
+			char* dec = argv[offset] + strLen("-t");
+			if (threshold)
+			{
+				code = ERR_CMD_DUPLICATE;
+				goto final;
+			}
+			if (!decIsValid(dec) || decCLZ(dec) || strLen(dec) > 2 ||
+				(threshold = (size_t)decToU32(dec)) < 2 || threshold > 16)
+			{
+				code = ERR_CMD_PARAMS;
+				goto final;
+			}
+			++offset, --argc;
+		}
+		// уровень стойкости
+		else if (strStartsWith(argv[offset], "-l"))
+		{
+			char* dec = argv[offset] + strLen("-l");
+			if (len)
+			{
+				code = ERR_CMD_DUPLICATE;
+				goto final;
+			}
+			if (!decIsValid(dec) || decCLZ(dec) || strLen(dec) != 3 ||
+				(len = (size_t)decToU32(dec)) % 64 || len < 128 || len > 256)
+			{
+				code = ERR_CMD_PARAMS;
+				goto final;
+			}
+			len /= 8;
+			if (len == 16 && crc)
+			{
+				code = ERR_CMD_PARAMS;
+				goto final;
+			}
+			++offset, --argc;
+		}
+		// контрольная сумма
+		else if (strStartsWith(argv[offset], "-crc"))
+		{
+			if (crc)
+			{
+				code = ERR_CMD_DUPLICATE;
+				goto final;
+			}
+			if (len == 16)
+			{
+				code = ERR_CMD_PARAMS;
+				goto final;
+			}
+			crc = TRUE, ++offset, --argc;
+		}
+		// пароль защиты частичных секретов
+		else if (strEq(argv[offset], "-pass"))
+		{
+			if (spwd)
+			{
+				code = ERR_CMD_DUPLICATE;
+				goto final;
+			}
+			++offset, --argc;
+			// определить пароль защиты частичных секретов
+			code = cmdPwdRead(&spwd, argv[offset]);
+			ERR_CALL_HANDLE(code, cmdArgClose(argv));
+			ASSERT(cmdPwdIsValid(spwd));
+			++offset, --argc;
+		}
+		else
+		{
+			code = ERR_CMD_PARAMS;
+			goto final;
+		}
+	}
+	// проверить, что пароль защиты частичных секретов построен
+	if (!spwd)
+	{
+		code = ERR_CMD_PARAMS;
+		goto final;
+	}
+	// настроить порог
+	if (!threshold)
+		threshold = 2;
+	// проверить число файлов с частичными секретами
+	if ((size_t)argc < threshold)
+	{
+		code = ERR_CMD_PARAMS;
+		goto final;
+	}
+	// проверить отсутствие файлов с частичными секретами
+	if ((code = cmdFileValNotExist(argc, argv + offset)) != ERR_OK)
+		goto final;
+	// построить пароль
+	code = cmdPwdGenShare_internal(pwd, (size_t)argc, threshold, len, crc,
+		argv + offset, spwd);
+final:
+	cmdPwdClose(spwd);
+	cmdArgClose(argv);
+	return code;
+}
+
+static err_t cmdPwdReadShare(cmd_pwd_t* pwd, const char* str)
+{
+	err_t code;
+	int argc;
+	char** argv = 0;
+	size_t offset = 0;
+	size_t threshold = 0;
+	size_t len = 0;
+	bool_t crc = FALSE;
+	cmd_pwd_t spwd = 0;
+	// составить список аргументов
+	code = cmdArgCreate(&argc, &argv, str);
+	ERR_CALL_CHECK(code);
+	// обработать опции
+	while (argc && strStartsWith(argv[offset], "-"))
+	{
+		// порог
+		if (strStartsWith(argv[offset], "-t"))
+		{
+			char* dec = argv[offset] + strLen("-t");
+			if (threshold)
+			{
+				code = ERR_CMD_DUPLICATE;
+				goto final;
+			}
+			if (!decIsValid(dec) || decCLZ(dec) || strLen(dec) > 2 ||
+				(threshold = (size_t)decToU32(dec)) < 2 || threshold > 16)
+			{
+				code = ERR_CMD_PARAMS;
+				goto final;
+			}
+			++offset, --argc;
+		}
+		// уровень стойкости
+		else if (strStartsWith(argv[offset], "-l"))
+		{
+			char* dec = argv[offset] + strLen("-l");
+			if (len)
+			{
+				code = ERR_CMD_DUPLICATE;
+				goto final;
+			}
+			if (!decIsValid(dec) || decCLZ(dec) || strLen(dec) != 3 ||
+				(len = (size_t)decToU32(dec)) % 64 || len < 128 || len > 256)
+			{
+				code = ERR_CMD_PARAMS;
+				goto final;
+			}
+			len /= 8;
+			if (len == 16 && crc)
+			{
+				code = ERR_CMD_PARAMS;
+				goto final;
+			}
+			++offset, --argc;
+		}
+		// контрольная сумма
+		else if (strStartsWith(argv[offset], "-crc"))
+		{
+			if (crc)
+			{
+				code = ERR_CMD_DUPLICATE;
+				goto final;
+			}
+			if (len == 16)
+			{
+				code = ERR_CMD_PARAMS;
+				goto final;
+			}
+			crc = TRUE, ++offset, --argc;
+		}
+		// пароль защиты частичных секретов
+		else if (strEq(argv[offset], "-pass"))
+		{
+			if (spwd)
+			{
+				code = ERR_CMD_DUPLICATE;
+				goto final;
+			}
+			++offset, --argc;
+			// определить пароль защиты частичных секретов
+			code = cmdPwdRead(&spwd, argv[offset]);
+			ERR_CALL_HANDLE(code, cmdArgClose(argv));
+			ASSERT(cmdPwdIsValid(spwd));
+			++offset, --argc;
+		}
+		else
+		{
+			code = ERR_CMD_PARAMS;
+			goto final;
+		}
+	}
+	// проверить, что пароль защиты частичных секретов определен
+	if (!spwd)
+	{
+		code = ERR_CMD_PARAMS;
+		goto final;
+	}
+	// настроить порог
+	if (!threshold)
+		threshold = 2;
+	// проверить число файлов с частичными секретами
+	if ((size_t)argc < threshold)
+	{
+		code = ERR_CMD_PARAMS;
+		goto final;
+	}
+	// проверить наличие файлов с частичными секретами
+	if ((code = cmdFileValExist(argc, argv + offset)) != ERR_OK)
+		goto final;
+	// определить пароль
+	code = cmdPwdReadShare_internal(pwd, (size_t)argc, len, crc,
+		argv + offset, spwd);
+final:
+	cmdPwdClose(spwd);
+	cmdArgClose(argv);
+	return code;
+}
+
+/*
+*******************************************************************************
+Управление паролями: построение / определение
+*******************************************************************************
+*/
+
+err_t cmdPwdGen(cmd_pwd_t* pwd, const char* schema)
+{
+	if (strStartsWith(schema, "pass:"))
+		return cmdPwdGenPass(pwd, schema + strLen("pass:"));
+	else if (strStartsWith(schema, "env:"))
+		return cmdPwdGenEnv(pwd, schema + strLen("env:"));
+	else if (strStartsWith(schema, "share:"))
+		return cmdPwdGenShare(pwd, schema + strLen("share:"));
+	return ERR_CMD_PARAMS;
+}
+
+err_t cmdPwdRead(cmd_pwd_t* pwd, const char* schema)
+{
+	if (strStartsWith(schema, "pass:"))
+		return cmdPwdReadPass(pwd, schema + strLen("pass:"));
+	else if (strStartsWith(schema, "env:"))
+		return cmdPwdReadEnv(pwd, schema + strLen("env:"));
+	else if (strStartsWith(schema, "share:"))
+		return cmdPwdReadShare(pwd, schema + strLen("share:"));
+	return ERR_CMD_PARAMS;
+}

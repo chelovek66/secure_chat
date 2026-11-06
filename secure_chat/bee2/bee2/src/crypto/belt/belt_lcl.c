@@ -1,0 +1,141 @@
+/*
+*******************************************************************************
+\file belt_lcl.c
+\brief STB 34.101.31 (belt): local functions
+\project bee2 [cryptographic library]
+\created 2012.12.18
+\version 2025.10.02
+\copyright The Bee2 authors
+\license Licensed under the Apache License, Version 2.0 (see LICENSE.txt).
+*******************************************************************************
+*/
+
+#include "bee2/core/util.h"
+#include "bee2/math/pp.h"
+#include "bee2/math/ww.h"
+#include "belt_lcl.h"
+
+/*
+*******************************************************************************
+Сложения 
+	block <- block + 8 * count
+*******************************************************************************
+*/
+
+void beltBlockAddBitSizeU32(u32 block[4], size_t count)
+{
+	register u32 carry = (u32)count << 3;
+#if (B_PER_S < 32)
+	carry = (block[0] += carry) < carry;
+	carry = (block[1] += carry) < carry;
+	carry = (block[2] += carry) < carry;
+	block[3] += carry;
+#else
+	register size_t t = count >> 29;
+	carry = (block[0] += carry) < carry;
+	if ((block[1] += carry) < carry)
+		block[1] = (u32)t;
+	else
+		carry = (block[1] += (u32)t) < (u32)t;
+	t >>= 16, t >>= 16;
+	if ((block[2] += carry) < carry)
+		block[2] = (u32)t;
+	else
+		carry = (block[2] += (u32)t) < (u32)t;
+	t >>= 16, t >>= 16;
+	block[3] += carry;
+	block[3] += (u32)t;
+	CLEAN(t);
+#endif
+	CLEAN(carry);
+}
+
+void beltHalfBlockAddBitSizeW(word block[W_OF_B(64)], size_t count)
+{
+	register word carry = (word)count << 3;
+#if (B_PER_W == 16)
+	{
+		register size_t t = count >> 13;
+		carry = (block[0] += carry) < carry;
+		if ((block[1] += carry) < carry)
+			block[1] = (word)t;
+		else
+			carry = (block[1] += (word)t) < (word)t;
+		t >>= 8, t >>= 8;
+		if ((block[2] += carry) < carry)
+			block[2] = (word)t;
+		else
+			carry = (block[2] += (word)t) < (word)t;
+		t >>= 8, t >>= 8;
+		block[3] += carry;
+		block[3] += (word)t;
+		CLEAN(t);
+	}
+#elif (B_PER_W == 32)
+	{
+		register size_t t = count;
+		carry = (block[0] += carry) < carry;
+		t >>= 15, t >>= 14;
+		block[1] += carry;
+		block[1] += (u32)t;
+		CLEAN(t);
+	}
+#elif (B_PER_W == 64)
+	block[0] += carry;
+#else
+	#error "Unsupported word size"
+#endif // B_PER_W
+	CLEAN(carry);
+}
+
+/*
+*******************************************************************************
+Умножение на многочлен C(x) = x mod (x^128 + x^7 + x^2 + x + 1)
+
+\remark t = (старший бит block ненулевой) ? x^7 + x^2 + x + 1 : 0 [регулярно].
+*******************************************************************************
+*/
+
+void beltBlockMulCU32(u32 block[4])
+{
+	register u32 t;
+	t = ~((block[3] >> 31) - U32_1) & 0x00000087;
+	block[3] <<= 1, block[3] ^= (block[2] >> 31);
+	block[2] <<= 1, block[2] ^= (block[1] >> 31);
+	block[1] <<= 1, block[1] ^= (block[0] >> 31);
+	block[0] <<= 1, block[0] ^= t;
+	CLEAN(t);
+}
+
+/*
+*******************************************************************************
+Умножение c(x) <- a(x) * b(x) mod (x^128 + x^7 + x^2 + x + 1)
+*******************************************************************************
+*/
+
+#define beltPolyMul_local(n)\
+/* prod */		O_OF_W(2 * n)
+
+void beltPolyMul(word c[], const word a[], const word b[], void* stack)
+{
+	const size_t n = W_OF_B(128);
+	word* prod;			/* [2 * n] */
+	// разметить стек
+	memSlice(stack,
+		beltPolyMul_local(n), SIZE_0, SIZE_MAX,
+		&prod, &stack);
+	// умножить
+	ppMul(prod, a, n, b, n, stack);
+	// привести по модулю
+	ppRedBelt(prod);
+	wwCopy(c, prod, n);
+}
+
+size_t beltPolyMul_deep()
+{
+	const size_t n = W_OF_B(128);
+	return memSliceSize(
+		beltPolyMul_local(n),
+		ppMul_deep(n, n),
+		SIZE_MAX);
+}

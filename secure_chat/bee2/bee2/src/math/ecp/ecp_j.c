@@ -1,0 +1,1352 @@
+/*
+*******************************************************************************
+\file ecp_j.c
+\brief Elliptic curves over prime fields: Jacobian coordinates
+\project bee2 [cryptographic library]
+\created 2012.06.26
+\version 2026.02.13
+\copyright The Bee2 authors
+\license Licensed under the Apache License, Version 2.0 (see LICENSE.txt).
+*******************************************************************************
+*/
+
+#include "bee2/core/util.h"
+#include "bee2/math/ecp.h"
+#include "bee2/math/gfp.h"
+#include "bee2/math/ww.h"
+#include "bee2/math/zz.h"
+#include "ecp_lcl.h"
+
+/*
+*******************************************************************************
+Арифметика якобиевых точек
+
+В функции ecpDblJ() выполняется удвоение J <- 2J. Реализован алгоритм
+dbl-1998-hnm из [HNM98]. Сложность алгоритма:
+	3M + 6S + 1*A + 1half + 6add + 3*2 \approx 9M.
+
+\todo Сравнить dbl-1998-hnm с dbl-2007-bl, сложность которого
+	1M + 8S + 1A + 10add + 1*8 + 2*2 + 1*3.
+
+В функции ecpDblJA3() выполняется удвоение J <- 2J для случая A = -3.
+Реализован алгоритм dbl-1998-hnm2 из [HNM98]. Сложность алгоритма:
+	4M + 4S + 1*half + 7add + 3*2 \approx 8M.
+
+\todo Сравнить dbl-1998-hnm2 с dbl-2001-b, сложность которого
+	3M +5S + 8add + 1*4 + 2*8 + 1*3.
+
+В функции ecpDblAJ() выполняется удвоение J <- 2A. Реализован алгоритм 
+mdbl-2007-bl из [BerLan07]. Сложность алгоритма:
+	1M + 5S + 7add + 1*8 + 3*2 + 1*3 \approx 6M.
+
+В функции ecpAddJ() выполняется сложение J <- J + J. Реализован алгоритм 
+add-2007-bl из [BerLan07]. Сложность алгоритма:
+	11M + 5S + 9add + 4*2 \approx 16M.
+
+\todo Сравнить add-2007-bl с add-1998-cmo-2, сложность которого
+	12M + 4S + 6add + 1*2.
+
+В функции ecpAddAJ() выполняется сложение J <- J + A.
+Реализован алгоритм madd-2004-hmv из [HMV04]. Сложность алгоритма:
+	8M + 3S + 6add + 1*2 \approx 11M.
+
+\todo Сравнить madd-2004-hmv с madd-2007-bl, сложность которого
+	7M + 4S + 9add + 1*4 + 3*2.
+
+\todo При выполнении функции ecpAddAJ() может выясниться, что
+складываются одинаковые точки. В этом случае вызывается функция
+ecpDblAJ(). Подумать, как "помочь" этой функции, передав уже
+рассчитанные значения, например, za^2. Аналогичное замечание касается
+функции ecpAddJ().
+
+\remark Целевые функции ci(l), определенные в описании реализации ecMulA()
+в ec.c, принимают следующий вид:
+	c1(l) = l/3 11;
+	c2(l, w) = 103 + (2^{w-2} - 2)102 + l/(w + 1) 11;
+	c3(l, w) = 6 + (2^{w-2} - 2)16 + l/(w + 1) 16.
+Расчеты показывают, что
+	с1(l) <= min_w c3(l), l <= 81,
+	min_w c3(l, w) <= min_w c2(l, w), l <= 899.
+Поэтому для практически используемых размерностей l (192 <= l <= 571)
+первые две стратегии являются проигрышными.
+
+[BerLan07] Bernstein D., Lange T. Faster addition and doubling on elliptic 
+           curves. Advances in Cryptology -- ASIACRYPT 2007.
+           https://eprint.iacr.org/2007/286.pdf.
+[HMV04]    Hankerson D., Menezes A., Vanstone S. Guide to Elliptic Curve 
+           Cryptography, Springer, 2004.
+[HNM98]    Hasegawa T., Nakajima J., Matsui M. A Practical Implementation 
+           of Elliptic Curve Cryptosystems over GF(p) on a 16-bit 
+           Microcomputer. Public Key Cryptography, 1998.
+*******************************************************************************
+*/
+
+// [3n]b <- [2n]a (J <- A)
+static bool_t ecpFromAJ(word b[], const word a[], const ec_o* ec, void* stack)
+{
+	ASSERT(ecIsOperable(ec) && ec->d == 3);
+	ASSERT(ecpSeemsOnA(a, ec));
+	ASSERT(a == b || wwIsDisjoint2(a, 2 * ec->f->n, b, 3 * ec->f->n));
+	// xb <- xa
+	qrCopy(ecX(b), ecX(a), ec->f);
+	// yb <- ya
+	qrCopy(ecY(b, ec->f->n), ecY(a, ec->f->n), ec->f);
+	// zb <- unity
+	qrSetUnity(ecZ(b, ec->f->n), ec->f);
+	return TRUE;
+}
+
+#define ecpToAJ_local(n)\
+/* t1 */	O_OF_W(n),\
+/* t2 */	O_OF_W(n)
+
+// [2n]b <- [3n]a (A <- J)
+static bool_t ecpToAJ(word b[], const word a[], const ec_o* ec, void* stack)
+{
+	size_t n;
+	word* t1;			/* [n] */
+	word* t2;			/* [n] */
+	// pre
+	ASSERT(ecIsOperable(ec) && ec->d == 3);
+	ASSERT(ecpSeemsOnJ(a, ec));
+	ASSERT(a == b || wwIsDisjoint2(a, 3 * ec->f->n, b, 2 * ec->f->n));
+	// разметить стек
+	n = ec->f->n;
+	memSlice(stack,
+		ecpToAJ_local(n), SIZE_0, SIZE_MAX,
+		&t1, &t2, &stack);
+	// a == O => b <- O
+	if (qrIsZero(ecZ(a, n), ec->f))
+		return FALSE;
+	// t1 <- za^{-1}
+	qrInv(t1, ecZ(a, n), ec->f, stack);
+	// t2 <- t1^2
+	qrSqr(t2, t1, ec->f, stack);
+	// xb <- xa t2
+	qrMul(ecX(b), ecX(a), t2, ec->f, stack);
+	// t2 <- t1 t2
+	qrMul(t2, t1, t2, ec->f, stack);
+	// yb <- ya t2
+	qrMul(ecY(b, n), ecY(a, n), t2, ec->f, stack);
+	// b != O
+	return TRUE;
+}
+
+static size_t ecpToAJ_deep(size_t n, size_t f_deep)
+{
+	return memSliceSize(
+		ecpToAJ_local(n), 
+		f_deep,
+		SIZE_MAX);
+}
+
+// [3n]b <- -[3n]a (J <- -J)
+static void ecpNegJ(word b[], const word a[], const ec_o* ec, void* stack)
+{
+	ASSERT(ecIsOperable(ec) && ec->d == 3);
+	ASSERT(ecpSeemsOnJ(a, ec));
+	ASSERT(wwIsSameOrDisjoint(a, b, 3 * ec->f->n));
+	// b <- (xa, -ya, za)
+	qrCopy(ecX(b), ecX(a), ec->f);
+	zmNeg(ecY(b, ec->f->n), ecY(a, ec->f->n), ec->f);
+	qrCopy(ecZ(b, ec->f->n), ecZ(a, ec->f->n), ec->f);
+}
+
+// [2n]b <- -[2n]a (A <- -A)
+static void ecpNegAJ(word b[], const word a[], const ec_o* ec, void* stack)
+{
+	ecpNegA(b, a, ec);
+}
+
+#define ecpDblJ_local(n)\
+/* t1 */	O_OF_W(n),\
+/* t2 */	O_OF_W(n)
+
+// [3n]b <- 2[3n]a (J <- 2J)
+static void ecpDblJ(word b[], const word a[], const ec_o* ec, void* stack)
+{
+	size_t n;
+	word* t1;			/* [n] */
+	word* t2;			/* [n] */
+	// pre
+	ASSERT(ecIsOperable(ec) && ec->d == 3);
+	ASSERT(ecpSeemsOnJ(a, ec));
+	ASSERT(wwIsSameOrDisjoint(a, b, 3 * ec->f->n));
+	// разметить стек
+	n = ec->f->n;
+	memSlice(stack,
+		ecpDblJ_local(n), SIZE_0, SIZE_MAX,
+		&t1, &t2, &stack);
+	// za == 0 или ya == 0? => b <- O
+	if (qrIsZero(ecZ(a, n), ec->f) || qrIsZero(ecY(a, n), ec->f))
+	{
+		qrSetZero(ecZ(b, n), ec->f);
+		return;
+	}
+	// t1 <- za^2
+	qrSqr(t1, ecZ(a, n), ec->f, stack);
+	// zb <- ya za
+	qrMul(ecZ(b, n), ecY(a, n), ecZ(a, n), ec->f, stack);
+	// zb <- 2 zb
+	gfpDouble(ecZ(b, n), ecZ(b, n), ec->f);
+	// t1 <- t1^2
+	qrSqr(t1, t1, ec->f, stack);
+	// t1 <- A t1
+	qrMul(t1, ec->A, t1, ec->f, stack);
+	// t2 <- xa^2
+	qrSqr(t2, ecX(a), ec->f, stack);
+	// t1 <- t1 + t2
+	zmAdd(t1, t1, t2, ec->f);
+	// t2 <- 2 t2
+	gfpDouble(t2, t2, ec->f);
+	// t1 <- t1 + t2
+	zmAdd(t1, t1, t2, ec->f);
+	// yb <- 2 ya
+	gfpDouble(ecY(b, n), ecY(a, n), ec->f);
+	// yb <- yb^2
+	qrSqr(ecY(b, n), ecY(b, n), ec->f, stack);
+	// t2 <- yb^2
+	qrSqr(t2, ecY(b, n), ec->f, stack);
+	// t2 <- t2 / 2
+	gfpHalf(t2, t2, ec->f);
+	// yb <- yb xa
+	qrMul(ecY(b, n), ecY(b, n), ecX(a), ec->f, stack);
+	// xb <- t1^2
+	qrSqr(ecX(b), t1, ec->f, stack);
+	// xb <- xb - yb
+	zmSub(ecX(b), ecX(b), ecY(b, n), ec->f);
+	// xb <- xb - yb
+	zmSub(ecX(b), ecX(b), ecY(b, n), ec->f);
+	// yb <- yb - xb
+	zmSub(ecY(b, n), ecY(b, n), ecX(b), ec->f);
+	// yb <- yb t1
+	qrMul(ecY(b, n), ecY(b, n), t1, ec->f, stack);
+	// yb <- yb - t2
+	zmSub(ecY(b, n), ecY(b, n), t2, ec->f);
+}
+
+static size_t ecpDblJ_deep(size_t n, size_t f_deep)
+{
+	return memSliceSize(
+		ecpDblJ_local(n), 
+		f_deep,
+		SIZE_MAX);
+}
+
+#define ecpDblJA3_local(n)\
+/* t1 */	O_OF_W(n),\
+/* t2 */	O_OF_W(n)
+
+// [3n]b <- 2[3n]a (J <- 2J, A = -3)
+static void ecpDblJA3(word b[], const word a[], const ec_o* ec, void* stack)
+{
+	size_t n;
+	word* t1;			/* [n] */
+	word* t2;			/* [n] */
+	// pre
+	ASSERT(ecIsOperable(ec) && ec->d == 3);
+	ASSERT(ecpSeemsOnJ(a, ec));
+	ASSERT(wwIsSameOrDisjoint(a, b, 3 * ec->f->n));
+	// разметить стек
+	n = ec->f->n;
+	memSlice(stack,
+		ecpDblJA3_local(n), SIZE_0, SIZE_MAX,
+		&t1, &t2, &stack);
+	// za == 0 или ya == 0? => b <- O
+	if (qrIsZero(ecZ(a, n), ec->f) || qrIsZero(ecY(a, n), ec->f))
+	{
+		qrSetZero(ecZ(b, n), ec->f);
+		return;
+	}
+	// t1 <- za^2
+	qrSqr(t1, ecZ(a, n), ec->f, stack);
+	// zb <- ya za
+	qrMul(ecZ(b, n), ecY(a, n), ecZ(a, n), ec->f, stack);
+	// zb <- 2 zb
+	gfpDouble(ecZ(b, n), ecZ(b, n), ec->f);
+	// t2 <- xa - t1
+	zmSub(t2, ecX(a), t1, ec->f);
+	// t1 <- xa + t1
+	zmAdd(t1, ecX(a), t1, ec->f);
+	// t2 <- t1 t2
+	qrMul(t2, t1, t2, ec->f, stack);
+	// t1 <- 2 t2
+	gfpDouble(t1, t2, ec->f);
+	// t1 <- t1 + t2
+	zmAdd(t1, t1, t2, ec->f);
+	// yb <- 2 ya
+	gfpDouble(ecY(b, n), ecY(a, n), ec->f);
+	// yb <- yb^2
+	qrSqr(ecY(b, n), ecY(b, n), ec->f, stack);
+	// t2 <- yb^2
+	qrSqr(t2, ecY(b, n), ec->f, stack);
+	// t2 <- t2 / 2
+	gfpHalf(t2, t2, ec->f);
+	// yb <- yb xa
+	qrMul(ecY(b, n), ecY(b, n), ecX(a), ec->f, stack);
+	// xb <- t1^2
+	qrSqr(ecX(b), t1, ec->f, stack);
+	// xb <- xb - yb
+	zmSub(ecX(b), ecX(b), ecY(b, n), ec->f);
+	// xb <- xb - yb
+	zmSub(ecX(b), ecX(b), ecY(b, n), ec->f);
+	// yb <- yb - xb
+	zmSub(ecY(b, n), ecY(b, n), ecX(b), ec->f);
+	// yb <- yb t1
+	qrMul(ecY(b, n), ecY(b, n), t1, ec->f, stack);
+	// yb <- yb - t2
+	zmSub(ecY(b, n), ecY(b, n), t2, ec->f);
+}
+
+static size_t ecpDblJA3_deep(size_t n, size_t f_deep)
+{
+	return memSliceSize(
+		ecpDblJA3_local(n), 
+		f_deep,
+		SIZE_MAX);
+}
+
+#define ecpDblAJ_local(n)\
+/* t1 */	O_OF_W(n),\
+/* t2 */	O_OF_W(n),\
+/* t3 */	O_OF_W(n),\
+/* t4 */	O_OF_W(n)
+
+// [3n]b <- 2[2n]a (J <- 2A)
+static void ecpDblAJ(word b[], const word a[], const ec_o* ec, void* stack)
+{
+	size_t n;
+	word* t1;			/* [n] */
+	word* t2;			/* [n] */
+	word* t3;			/* [n] */
+	word* t4;			/* [n] */
+	// pre
+	ASSERT(ecIsOperable(ec) && ec->d == 3);
+	ASSERT(ecpSeemsOnA(a, ec));
+	ASSERT(a == b || wwIsDisjoint2(a, 2 * ec->f->n, b, 3 * ec->f->n));
+	// разметить стек
+	n = ec->f->n;
+	memSlice(stack,
+		ecpDblAJ_local(n), SIZE_0, SIZE_MAX,
+		&t1, &t2, &t3, &t4, &stack);
+	// ya == 0? => b <- O
+	if (qrIsZero(ecY(a, n), ec->f))
+	{
+		qrSetZero(ecZ(b, n), ec->f);
+		return;
+	}
+	// t1 <- xa^2 [X1^2 = XX]
+	qrSqr(t1, ecX(a), ec->f, stack);
+	// t2 <- ya^2 [Y1^2 = YY]
+	qrSqr(t2, ecY(a, n), ec->f, stack);
+	// t3 <- t2^2 [YY^2 = YYYY]
+	qrSqr(t3, t2, ec->f, stack);
+	// t2 <- t2 + xa [X1 + YY]
+	zmAdd(t2, t2, ecX(a), ec->f);
+	// t2 <- t2^2 [(X1 + YY)^2]
+	qrSqr(t2, t2, ec->f, stack);
+	// t2 <- t2 - t1 [(X1 + YY)^2 - XX]
+	zmSub(t2, t2, t1, ec->f);
+	// t2 <- t2 - t3 [(X1 + YY)^2 - XX - YYYY]
+	zmSub(t2, t2, t3, ec->f);
+	// t2 <- 2 t2 [2((X1 + YY)^2 - XX - YYYY) = S]
+	gfpDouble(t2, t2, ec->f);
+	// t4 <- 2 t1 [2 XX]
+	gfpDouble(t4, t1, ec->f);
+	// t4 <- t4 + t1 [3 XX]
+	zmAdd(t4, t4, t1, ec->f);
+	// t4 <- t4 + A [3 XX + A = M]
+	zmAdd(t4, t4, ec->A, ec->f);
+	// t1 <- 2 t2 [2S]
+	gfpDouble(t1, t2, ec->f);
+	// xb <- t4^2 [M^2]
+	qrSqr(ecX(b), t4, ec->f, stack);
+	// xb <- xb - t1 [M^2 - 2S = T]
+	zmSub(ecX(b), ecX(b), t1, ec->f);
+	// zb <- 2 ya [2Y1]
+	gfpDouble(ecZ(b, n), ecY(a, n), ec->f);
+	// t2 <- t2 - xb [S - T]
+	zmSub(t2, t2, ecX(b), ec->f);
+	// yb <- t4 t2 [M(S - T)]
+	qrMul(ecY(b, n), t4, t2, ec->f, stack);
+	// t3 <- 2 t3 [2 YYYY]
+	gfpDouble(t3, t3, ec->f);
+	// t3 <- 2 t3 [4 YYYY]
+	gfpDouble(t3, t3, ec->f);
+	// t3 <- 2 t3 [8 YYYY]
+	gfpDouble(t3, t3, ec->f);
+	// yb <- yb - t3 [M(S - T) - 8 YYYY]
+	zmSub(ecY(b, n), ecY(b, n), t3, ec->f);
+}
+
+static size_t ecpDblAJ_deep(size_t n, size_t f_deep)
+{
+	return memSliceSize(
+		ecpDblAJ_local(n), 
+		f_deep,
+		SIZE_MAX);
+}
+
+#define ecpAddJ_local(n)\
+/* t1 */	O_OF_W(n),\
+/* t2 */	O_OF_W(n),\
+/* t3 */	O_OF_W(n),\
+/* t4 */	O_OF_W(n)
+
+// [3n]c <- [3n]a + [3n]b (J <- J + J)
+static void ecpAddJ(word c[], const word a[], const word b[], const ec_o* ec,
+	void* stack)
+{
+	size_t n;
+	word* t1;			/* [n] */
+	word* t2;			/* [n] */
+	word* t3;			/* [n] */
+	word* t4;			/* [n] */
+	// pre
+	ASSERT(ecIsOperable(ec) && ec->d == 3);
+	ASSERT(ecpSeemsOnJ(a, ec));
+	ASSERT(ecpSeemsOnJ(b, ec));
+	ASSERT(wwIsSameOrDisjoint(a, c, 3 * ec->f->n));
+	ASSERT(wwIsSameOrDisjoint(b, c, 3 * ec->f->n));
+	// разметить стек
+	n = ec->f->n;
+	memSlice(stack,
+		ecpAddJ_local(n), SIZE_0, SIZE_MAX,
+		&t1, &t2, &t3, &t4, &stack);
+	// a == O => c <- b
+	if (qrIsZero(ecZ(a, n), ec->f))
+	{
+		wwCopy(c, b, 3 * n);
+		return;
+	}
+	// b == O => c <- a
+	if (qrIsZero(ecZ(b, n), ec->f))
+	{
+		wwCopy(c, a, 3 * n);
+		return;
+	}
+	// t1 <- za^2 [Z1Z1]
+	qrSqr(t1, ecZ(a, n), ec->f, stack);
+	// t2 <- zb^2 [Z2Z2]
+	qrSqr(t2, ecZ(b, n), ec->f, stack);
+	// t3 <- zb t2 [Z2 Z2Z2]
+	qrMul(t3, ecZ(b, n), t2, ec->f, stack);
+	// t3 <- ya t3 [Y1 Z2 Z2Z2 = S1]
+	qrMul(t3, ecY(a, n), t3, ec->f, stack);
+	// t4 <- za t1 [Z1 Z1Z1]
+	qrMul(t4, ecZ(a, n), t1, ec->f, stack);
+	// t4 <- yb t4 [Y2 Z1 Z1Z1 = S2]
+	qrMul(t4, ecY(b, n), t4, ec->f, stack);
+	// zc <- za + zb [Z1 + Z2]
+	zmAdd(ecZ(c, n), ecZ(a, n), ecZ(b, n), ec->f);
+	// zc <- zc^2 [(Z1 + Z2)^2]
+	qrSqr(ecZ(c, n), ecZ(c, n), ec->f, stack);
+	// zc <- zc - t1 [(Z1 + Z2)^2 - Z1Z1]
+	zmSub(ecZ(c, n), ecZ(c, n), t1, ec->f);
+	// zc <- zc - t2 [(Z1 + Z2)^2 - Z1Z1 - Z2Z2]
+	zmSub(ecZ(c, n), ecZ(c, n), t2, ec->f);
+	// t1 <- xb t1 [X1 Z2Z2 = U2]
+	qrMul(t1, ecX(b), t1, ec->f, stack);
+	// t2 <- xa t2 [X2 Z1Z1 = U1]
+	qrMul(t2, ecX(a), t2, ec->f, stack);
+	// t1 <- t1 - t2 [U2 - U1 = H]
+	zmSub(t1, t1, t2, ec->f);
+	// t1 == 0 => xa zb^2 == xb za^2
+	if (qrIsZero(t1, ec->f))
+	{
+		// t3 == t4 => ya zb^3 == yb za^3 => a == b => c <- 2a
+		if (qrCmp(t3, t4, ec->f) == 0)
+			ecpDblJ(c, c == a ? b : a, ec, stack);
+		// t3 != t4 => a == -b => c <- O
+		else
+			qrSetZero(ecZ(c, n), ec->f);
+		return;
+	}
+	// zc <- zc t1 [((Z1 + Z2)^2 - Z1Z1 - Z2Z2)H = Z3]
+	qrMul(ecZ(c, n), ecZ(c, n), t1, ec->f, stack);
+	// t4 <- t4 - t3 [S2 - S1]
+	zmSub(t4, t4, t3, ec->f);
+	// t4 <- 2 t4 [2(S2 - S1) = r]
+	gfpDouble(t4, t4, ec->f);
+	// yc <- 2 t1 [2H]
+	gfpDouble(ecY(c, n), t1, ec->f);
+	// yc <- yc^2 [(2H)^2 = I]
+	qrSqr(ecY(c, n), ecY(c, n), ec->f, stack);
+	// t1 <- t1 yc [H I = J]
+	qrMul(t1, t1, ecY(c, n), ec->f, stack);
+	// yc <- t2 yc [U1 I = V]
+	qrMul(ecY(c, n), t2, ecY(c, n), ec->f, stack);
+	// t2 <- 2 yc [2 V]
+	gfpDouble(t2, ecY(c, n), ec->f);
+	// xc <- t4^2 [r^2]
+	qrSqr(ecX(c), t4, ec->f, stack);
+	// xc <- xc - t1 [r^2 - J]
+	zmSub(ecX(c), ecX(c), t1, ec->f);
+	// xc <- xc - t2 [r^2 - J - 2V = X3]
+	zmSub(ecX(c), ecX(c), t2, ec->f);
+	// yc <- yc - xc [V - X3]
+	zmSub(ecY(c, n), ecY(c, n), ecX(c), ec->f);
+	// yc <- t4 yc [r(V - X3)]
+	qrMul(ecY(c, n), t4, ecY(c, n), ec->f, stack);
+	// t3 <- 2 t3 [2S1]
+	gfpDouble(t3, t3, ec->f);
+	// t3 <- t3 t1 [2S1 J]
+	qrMul(t3, t3, t1, ec->f, stack);
+	// yc <- yc - t3 [r(V - X3) - 2 S1 J]
+	zmSub(ecY(c, n), ecY(c, n), t3, ec->f);
+}
+
+static size_t ecpAddJ_deep(size_t n, size_t f_deep)
+{
+	return memSliceSize(
+		ecpAddJ_local(n), 
+		utilMax(2,
+			f_deep,
+			ecpDblJ_deep(n, f_deep)),
+		SIZE_MAX);
+}
+
+#define ecpAddAJ_local(n)\
+/* t1 */	O_OF_W(n),\
+/* t2 */	O_OF_W(n),\
+/* t3 */	O_OF_W(n),\
+/* t4 */	O_OF_W(n)
+
+// [3n]c <- [3n]a + [2n]b (J <- J + A)
+static void ecpAddAJ(word c[], const word a[], const word b[], const ec_o* ec,
+	void* stack)
+{
+	size_t n;
+	word* t1;			/* [n] */
+	word* t2;			/* [n] */
+	word* t3;			/* [n] */
+	word* t4;			/* [n] */
+	// pre
+	ASSERT(ecIsOperable(ec) && ec->d == 3);
+	ASSERT(ecpSeemsOnJ(a, ec));
+	ASSERT(ecpSeemsOnA(b, ec));
+	ASSERT(wwIsSameOrDisjoint(a, c, 3 * ec->f->n));
+	ASSERT(b == c || wwIsDisjoint2(b, 2 * ec->f->n, c, 3 * ec->f->n));
+	// разметить стек
+	n = ec->f->n;
+	memSlice(stack,
+		ecpAddAJ_local(n), SIZE_0, SIZE_MAX,
+		&t1, &t2, &t3, &t4, &stack);
+	// a == O => c <- (xb : yb : 1)
+	if (qrIsZero(ecZ(a, n), ec->f))
+	{
+		qrCopy(ecX(c), ecX(b), ec->f);
+		qrCopy(ecY(c, n), ecY(b, n), ec->f);
+		qrSetUnity(ecZ(c, n), ec->f);
+		return;
+	}
+	// t1 <- za^2
+	qrSqr(t1, ecZ(a, n), ec->f, stack);
+	// t2 <- t1 za
+	qrMul(t2, t1, ecZ(a, n), ec->f, stack);
+	// t1 <- t1 xb
+	qrMul(t1, t1, ecX(b), ec->f, stack);
+	// t2 <- t2 yb
+	qrMul(t2, t2, ecY(b, n), ec->f, stack);
+	// t1 <- t1 - xa
+	zmSub(t1, t1, ecX(a), ec->f);
+	// t2 <- t2 - ya
+	zmSub(t2, t2, ecY(a, n), ec->f);
+	// t1 == 0?
+	if (qrIsZero(t1, ec->f))
+	{
+		// t2 == 0 => c <- 2(xb : yb : 1)
+		if (qrIsZero(t2, ec->f))
+			ecpDblAJ(c, b, ec, stack);
+		// t2 != 0 => c <- O
+		else
+			qrSetZero(ecZ(c, n), ec->f);
+		return;
+	}
+	// zc <- t1 za
+	qrMul(ecZ(c, n), t1, ecZ(a, n), ec->f, stack);
+	// t3 <- t1^2
+	qrSqr(t3, t1, ec->f, stack);
+	// t4 <- t1 t3
+	qrMul(t4, t1, t3, ec->f, stack);
+	// t3 <- t3 xa
+	qrMul(t3, t3, ecX(a), ec->f, stack);
+	// t1 <- 2 t3
+	gfpDouble(t1, t3, ec->f);
+	// xc <- t2^2
+	qrSqr(ecX(c), t2, ec->f, stack);
+	// xc <- xc - t1
+	zmSub(ecX(c), ecX(c), t1, ec->f);
+	// xc <- xc - t4
+	zmSub(ecX(c), ecX(c), t4, ec->f);
+	// t3 <- t3 - xc
+	zmSub(t3, t3, ecX(c), ec->f);
+	// t3 <- t3 t2
+	qrMul(t3, t3, t2, ec->f, stack);
+	// t4 <- t4 ya
+	qrMul(t4, t4, ecY(a, n), ec->f, stack);
+	// yc <- t3 - t4
+	zmSub(ecY(c, n), t3, t4, ec->f);
+}
+
+static size_t ecpAddAJ_deep(size_t n, size_t f_deep)
+{
+	return memSliceSize(
+		ecpAddAJ_local(n), 
+		utilMax(2,
+			f_deep,
+			ecpDblJ_deep(n, f_deep)),
+		SIZE_MAX);
+}
+
+/*
+*******************************************************************************
+Утроение
+
+В функции ecpTplJ() выполняется утроение J <- 3J. Реализован алгоритм
+tpl-2007-bl из [BerLan07]. Сложность алгоритма:
+	5M + 10S + 1*A + 15add + 2*4 + 1*6 + 1*8 + 1*16 + 1*3 \approx 15M.
+
+В функции ecpTplJA3() выполняется утроение J <- 3J для случая A = -3.
+Реализован алгоритм tpl-2007-bl-2 из [BerLan07]. Сложность алгоритма:
+	7M + 7S + 13add + 2*4 + 1*8 + 1*12 + 1*16 + 1*3 \approx 14M.
+******************************************************************************
+*/
+
+#define ecpTplJ_local(n)\
+/* t0 */	O_OF_W(n),\
+/* t1 */	O_OF_W(n),\
+/* t2 */	O_OF_W(n),\
+/* t3 */	O_OF_W(n),\
+/* t4 */	O_OF_W(n),\
+/* t5 */	O_OF_W(n),\
+/* t6 */	O_OF_W(n),\
+/* t7 */	O_OF_W(n)
+
+// [3n]b <- 3[3n]a (J <- 3J)
+static void ecpTplJ(word b[], const word a[], const ec_o* ec, void* stack)
+{
+	size_t n;
+	word* t0;			/* [n] */
+	word* t1;			/* [n] */
+	word* t2;			/* [n] */
+	word* t3;			/* [n] */
+	word* t4;			/* [n] */
+	word* t5;			/* [n] */
+	word* t6;			/* [n] */
+	word* t7;			/* [n] */
+	// pre
+	ASSERT(ecIsOperable(ec) && ec->d == 3);
+	ASSERT(ecpSeemsOnJ(a, ec));
+	ASSERT(wwIsSameOrDisjoint(a, b, 3 * ec->f->n));
+	// разметить стек
+	n = ec->f->n;
+	memSlice(stack,
+		ecpTplJ_local(n), SIZE_0, SIZE_MAX,
+		&t0, &t1, &t2, &t3, &t4, &t5, &t6, &t7, &stack);
+	// t0 <- xa^2 [XX]
+	qrSqr(t0, ecX(a), ec->f, stack);
+	// t1 <- ya^2 [YY]
+	qrSqr(t1, ecY(a, n), ec->f, stack);
+	// t2 <- za^2 [ZZ]
+	qrSqr(t2, ecZ(a, n), ec->f, stack);
+	// t3 <- t1^2 [YYYY]
+	qrSqr(t3, t1, ec->f, stack);
+	// t4 <- 3 t0 + A t2^2 [M]
+	qrSqr(t4, t2, ec->f, stack);
+	qrMul(t4, t4, ec->A, ec->f, stack);
+	gfpDouble(t5, t0, ec->f);
+	zmAdd(t5, t0, t5, ec->f);
+	zmAdd(t4, t4, t5, ec->f);
+	// t5 <- t4^2 [MM]
+	qrSqr(t5, t4, ec->f, stack);
+	// t6 <- 6((xa + t1)^2 - t0 - t3) - t5 [E]
+	zmAdd(t6, ecX(a), t1, ec->f);
+	qrSqr(t6, t6, ec->f, stack);
+	zmSub(t6, t6, t0, ec->f);
+	zmSub(t6, t6, t3, ec->f);
+	gfpDouble(t7, t6, ec->f);
+	zmAdd(t6, t6, t7, ec->f);
+	gfpDouble(t6, t6, ec->f);
+	zmSub(t6, t6, t5, ec->f);
+	// t7 <- t6^2 [EE]
+	qrSqr(t7, t6, ec->f, stack);
+	// t3 <- 16 t3 [T]
+	gfpDouble(t3, t3, ec->f);
+	gfpDouble(t3, t3, ec->f);
+	gfpDouble(t3, t3, ec->f);
+	gfpDouble(t3, t3, ec->f);
+	// zb <- (za + t6)^2 - t2 - t7
+	zmAdd(ecZ(b, n), ecZ(a, n), t6, ec->f);
+	qrSqr(ecZ(b, n), ecZ(b, n), ec->f, stack);
+	zmSub(ecZ(b, n), ecZ(b, n), t2, ec->f);
+	zmSub(ecZ(b, n), ecZ(b, n), t7, ec->f);
+	// t2 <- (t4 + t6)^2 - t5 - t7 - t3 [U] 
+	zmAdd(t2, t4, t6, ec->f);
+	qrSqr(t2, t2, ec->f, stack);
+	zmSub(t2, t2, t5, ec->f);
+	zmSub(t2, t2, t7, ec->f);
+	zmSub(t2, t2, t3, ec->f);
+	// yb <- 8 ya (t2(t3 - t2) - t6 t7)
+	zmSub(t3, t3, t2, ec->f);
+	qrMul(t3, t2, t3, ec->f, stack);
+	qrMul(t6, t6, t7, ec->f, stack);
+	zmSub(t3, t3, t6, ec->f);
+	qrMul(ecY(b, n), ecY(a, n), t3, ec->f, stack);
+	gfpDouble(ecY(b, n), ecY(b, n), ec->f);
+	gfpDouble(ecY(b, n), ecY(b, n), ec->f);
+	gfpDouble(ecY(b, n), ecY(b, n), ec->f);
+	// xb <- 4 (xa t7 - 4 t1 t2)
+	qrMul(t1, t1, t2, ec->f, stack);
+	gfpDouble(t1, t1, ec->f);
+	gfpDouble(t1, t1, ec->f);
+	qrMul(ecX(b), ecX(a), t7, ec->f, stack);
+	zmSub(ecX(b), ecX(b), t1, ec->f);
+	gfpDouble(ecX(b), ecX(b), ec->f);
+	gfpDouble(ecX(b), ecX(b), ec->f);
+}
+
+static size_t ecpTplJ_deep(size_t n, size_t f_deep)
+{
+	return memSliceSize(
+		ecpTplJ_local(n), 
+		f_deep,
+		SIZE_MAX);
+}
+
+#define ecpTplJA3_local(n)\
+/* t1 */	O_OF_W(n),\
+/* t2 */	O_OF_W(n),\
+/* t3 */	O_OF_W(n),\
+/* t4 */	O_OF_W(n),\
+/* t5 */	O_OF_W(n),\
+/* t6 */	O_OF_W(n),\
+/* t7 */	O_OF_W(n)
+
+// [3n]b <- 3[3n]a (J <- 3J)
+static void ecpTplJA3(word b[], const word a[], const ec_o* ec, void* stack)
+{
+	size_t n;
+	word* t1;			/* [n] */
+	word* t2;			/* [n] */
+	word* t3;			/* [n] */
+	word* t4;			/* [n] */
+	word* t5;			/* [n] */
+	word* t6;			/* [n] */
+	word* t7;			/* [n] */
+	// pre
+	ASSERT(ecIsOperable(ec) && ec->d == 3);
+	ASSERT(ecpSeemsOnJ(a, ec));
+	ASSERT(wwIsSameOrDisjoint(a, b, 3 * ec->f->n));
+	// разметить стек
+	n = ec->f->n;
+	memSlice(stack,
+		ecpTplJA3_local(n), SIZE_0, SIZE_MAX,
+		&t1, &t2, &t3, &t4, &t5, &t6, &t7, &stack);
+	// t1 <- ya^2 [YY]
+	qrSqr(t1, ecY(a, n), ec->f, stack);
+	// t2 <- za^2 [ZZ]
+	qrSqr(t2, ecZ(a, n), ec->f, stack);
+	// t3 <- t1^2 [YYYY]
+	qrSqr(t3, t1, ec->f, stack);
+	// t4 <- 3(xa - t2)(xa + t2) [M]
+	zmSub(t4, ecX(a), t2, ec->f);
+	zmAdd(t5, ecX(a), t2, ec->f);
+	qrMul(t4, t4, t5, ec->f, stack);
+	gfpDouble(t5, t4, ec->f);
+	zmAdd(t4, t4, t5, ec->f);
+	// t5 <- t4^2 [MM]
+	qrSqr(t5, t4, ec->f, stack);
+	// t6 <- 12 xa t1 - t5 [E]
+	qrMul(t6, ecX(a), t1, ec->f, stack);
+	gfpDouble(t7, t6, ec->f);
+	zmAdd(t6, t6, t7, ec->f);
+	gfpDouble(t6, t6, ec->f);
+	gfpDouble(t6, t6, ec->f);
+	zmSub(t6, t6, t5, ec->f);
+	// t7 <- t6^2 [EE]
+	qrSqr(t7, t6, ec->f, stack);
+	// t3 <- 16 t3 [T]
+	gfpDouble(t3, t3, ec->f);
+	gfpDouble(t3, t3, ec->f);
+	gfpDouble(t3, t3, ec->f);
+	gfpDouble(t3, t3, ec->f);
+	// zb <- (za + t6)^2 - t2 - t7
+	zmAdd(ecZ(b, n), ecZ(a, n), t6, ec->f);
+	qrSqr(ecZ(b, n), ecZ(b, n), ec->f, stack);
+	zmSub(ecZ(b, n), ecZ(b, n), t2, ec->f);
+	zmSub(ecZ(b, n), ecZ(b, n), t7, ec->f);
+	// t2 <- (t4 + t6)^2 - t5 - t7 - t3 [U] 
+	zmAdd(t2, t4, t6, ec->f);
+	qrSqr(t2, t2, ec->f, stack);
+	zmSub(t2, t2, t5, ec->f);
+	zmSub(t2, t2, t7, ec->f);
+	zmSub(t2, t2, t3, ec->f);
+	// yb <- 8 ya (t2(t3 - t2) - t6 t7)
+	zmSub(t3, t3, t2, ec->f);
+	qrMul(t3, t2, t3, ec->f, stack);
+	qrMul(t6, t6, t7, ec->f, stack);
+	zmSub(t3, t3, t6, ec->f);
+	qrMul(ecY(b, n), ecY(a, n), t3, ec->f, stack);
+	gfpDouble(ecY(b, n), ecY(b, n), ec->f);
+	gfpDouble(ecY(b, n), ecY(b, n), ec->f);
+	gfpDouble(ecY(b, n), ecY(b, n), ec->f);
+	// xb <- 4 (xa t7 - 4 t1 t2)
+	qrMul(t1, t1, t2, ec->f, stack);
+	gfpDouble(t1, t1, ec->f);
+	gfpDouble(t1, t1, ec->f);
+	qrMul(ecX(b), ecX(a), t7, ec->f, stack);
+	zmSub(ecX(b), ecX(b), t1, ec->f);
+	gfpDouble(ecX(b), ecX(b), ec->f);
+	gfpDouble(ecX(b), ecX(b), ec->f);
+}
+
+static size_t ecpTplJA3_deep(size_t n, size_t f_deep)
+{
+	return memSliceSize(
+		ecpTplJA3_local(n), 
+		f_deep,
+		SIZE_MAX);
+}
+
+/*
+*******************************************************************************
+Удвоение и сложение
+
+В функции ecpDblAddAJ() выполняется удвоение и сложение J <- 2J + A.
+Реализован алгоритм из [LonMir08; приложение А.3]. Время работы алгоритма:
+	11M + 7S + 25add.
+
+\warning В [LonMir08] вычисление 2a + b структурно выполняется за два сложения:
+	c <- a + b, c <- c + a.
+При первом сложении не обрабатываются исключения a == \pm b, что может привести
+к неверному результату.
+
+\warning В [LonMir08] имеется неточность: шаг 36 необходимо выполнять после
+шага 38, так как на шаге 38 значение переменной t5 предполагается равным
+theta^3. Это значение устанавливается на шаге 33 и перезаписывается на
+шаге 36.
+
+[LonMir08] Longa P., Miri A. New Multibase Non-Adjacent Form Scalar
+		   Multiplication and its Application to Elliptic Curve Cryptosystems
+		   (extended version). Cryptology ePrint Archive, Report 2008/052.
+		   https://eprint.iacr.org/2008/052.
+******************************************************************************
+*/
+
+#define ecpDblAddAJ_local(n)\
+/* pt */	O_OF_W(3 * n),\
+/* t4 */	O_OF_W(n),\
+/* t5 */	O_OF_W(n),\
+/* t6 */	O_OF_W(n)
+
+// [3n]c <- 2[3n]a + [2n]b (J <- 2J + A)
+void ecpDblAddAJ(word c[], const word a[], const word b[], const ec_o* ec,
+	void* stack)
+{
+	size_t n;
+	word* pt;			/* [3 * n] */
+	word* t1;			/*   [n] */
+	word* t2;			/*   [n] */
+	word* t3;			/*   [n] */
+	word* t4;			/* [n] */
+	word* t5;			/* [n] */
+	word* t6;			/* [n] */
+	// pre
+	ASSERT(ecIsOperable(ec) && ec->d == 3);
+	ASSERT(ecpSeemsOnJ(a, ec));
+	ASSERT(ecpSeemsOnA(b, ec));
+	ASSERT(wwIsSameOrDisjoint(a, c, 3 * ec->f->n));
+	ASSERT(wwIsDisjoint2(b, 2 * ec->f->n, c, 3 * ec->f->n));
+	// разметить стек
+	n = ec->f->n;
+	memSlice(stack,
+		ecpDblAddAJ_local(n), SIZE_0, SIZE_MAX,
+		&pt, &t4, &t5, &t6, &stack);
+	t1 = pt, t2 = t1 + n, t3 = t2 + n;
+	// a == O => c <- b
+	if (qrIsZero(ecZ(a, n), ec->f))
+	{
+		ecFromA(c, b, ec, stack);
+		return;
+	}
+	// pt = (t1 : t2 : t3) <- a
+	wwCopy(pt, a, 3 * n);
+	// 3: t4 <- t3^2
+	qrSqr(t4, t3, ec->f, stack);
+	// 4: t5 <- xb * t4
+	qrMul(t5, ecX(b), t4, ec->f, stack);
+	// 5: t5 <- t5 - t1 [beta]
+	qrSub(t5, t5, t1, ec->f);
+	// 6: t6 <- t3 + t5
+	qrAdd(t6, t3, t5, ec->f);
+	// 7: t6 <- t6^2
+	qrSqr(t6, t6, ec->f, stack);
+	// 8: t6 <- t6 - t4
+	qrSub(t6, t6, t4, ec->f);
+	// 9: t4 <- t3 * t4
+	qrMul(t4, t3, t4, ec->f, stack);
+	// 10: t4 <- yb * t4
+	qrMul(t4, ecY(b, n), t4, ec->f, stack);
+	// 11: t4 <- t4 - t2 [alpha]
+	qrSub(t4, t4, t2, ec->f);
+	// beta == 0  => a == \pm b
+	//   alpha == 0 => a == b => 2a + b == 3a
+	//   alpha != 0 => a == -b => 2a + b == a
+	if (qrIsZero(t5, ec->f))
+	{
+		if (qrIsZero(t4, ec->f))
+			ecpTplJ(c, a, ec, stack);
+		else
+			wwCopy(c, a, 3 * n);
+		return;
+	}
+	// 12: t3 <- t5^2
+	qrSqr(t3, t5, ec->f, stack);
+	// 13: t6 <- t6 - t3
+	qrSub(t6, t6, t3, ec->f);
+	// 14: t1 <- t1 * t3
+	qrMul(t1, t1, t3, ec->f, stack);
+	// 15: t1 <- 4 t1
+	gfpDouble(t1, t1, ec->f);
+	gfpDouble(t1, t1, ec->f);
+	// 16: t3 <- t3 * t5
+	qrMul(t3, t3, t5, ec->f, stack);
+	// 17: t2 <- t2 * t3
+	qrMul(t2, t2, t3, ec->f, stack);
+	// 18: t2 <- 8 t2
+	gfpDouble(t2, t2, ec->f);
+	gfpDouble(t2, t2, ec->f);
+	gfpDouble(t2, t2, ec->f);
+	// 19: t5 <- t4^2
+	qrSqr(t5, t4, ec->f, stack);
+	// 20: t3 <- t5 - t3
+	qrSub(t3, t5, t3, ec->f);
+	// 21: t3 <- 4 t3
+	gfpDouble(t3, t3, ec->f);
+	gfpDouble(t3, t3, ec->f);
+	// 22: t3 <- t3 - t1
+	qrSub(t3, t3, t1, ec->f);
+	// 23: t3 <- t3 - t1
+	qrSub(t3, t3, t1, ec->f);
+	// 24: t3 <- t3 - t1
+	qrSub(t3, t3, t1, ec->f);
+	// 25: t4 <- t3 + t4
+	qrAdd(t4, t3, t4, ec->f);
+	// 26: t4 <- t4^2
+	qrSqr(t4, t4, ec->f, stack);
+	// 27: t4 <- t5 - t4
+	qrSub(t4, t5, t4, ec->f);
+	// 28: t4 <- t4 - t2
+	qrSub(t4, t4, t2, ec->f);
+	// 29: t4 <- t4 - t2
+	qrSub(t4, t4, t2, ec->f);
+	// 30: t5 <- t3^2
+	qrSqr(t5, t3, ec->f, stack);
+	// 31: t4 <- t4 + t5
+	qrAdd(t4, t4, t5, ec->f);
+	// 32: t1 <- t1 * t5
+	qrMul(t1, t1, t5, ec->f, stack);
+	// 33: t5 <- t3 * t5
+	qrMul(t5, t3, t5, ec->f, stack);
+	// 34: t3 <- t3 * t6
+	qrMul(t3, t3, t6, ec->f, stack);
+	// 35: t2 <- t2 * t5
+	qrMul(t2, t2, t5, ec->f, stack);
+	// шаг 36 будет после шага 38
+	// 37: t6 <- t4^2
+	qrSqr(t6, t4, ec->f, stack);
+	// 38: t6 <- t6 - t5
+	qrSub(t6, t6, t5, ec->f);
+	// 36: t5 <- 3 t1
+	gfpDouble(t5, t1, ec->f);
+	qrAdd(t5, t5, t1, ec->f);
+	// 39: t5 <- t5 - t6
+	qrSub(t5, t5, t6, ec->f);
+	// 40: t4 <- t4 * t5
+	qrMul(t4, t4, t5, ec->f, stack);
+	// 41: t2 <- t4 - t2
+	qrSub(t2, t4, t2, ec->f);
+	// 42: t1 <- t1 - t5
+	qrSub(t1, t1, t5, ec->f);
+	// c <- pt = (t1 : t2 : t3)
+	wwCopy(c, pt, 3 * n);
+}
+
+size_t ecpDblAddAJ_deep(size_t n, size_t f_deep)
+{
+	return memSliceSize(
+		ecpDblAddAJ_local(n),
+		utilMax(2,
+			f_deep,
+			ecpTplJ_deep(n, f_deep)),
+		SIZE_MAX);
+}
+
+/*
+*******************************************************************************
+Изменение знака
+******************************************************************************
+*/
+
+// [3n]b <- (-1)^neg [3n]a (J <- \pm J)
+static void ecpSgnJ(word a[], register word neg, const ec_o* ec, void* stack)
+{
+	ASSERT(ecIsOperable(ec) && ec->d == 3);
+	ASSERT(ecpSeemsOnJ(a, ec));
+	ASSERT(neg == 0 || neg == 1);
+	// a <- (xa, (-1)^neg ya, za)
+	zzNegModIf(ecY(a, ec->f->n), ecY(a, ec->f->n), ec->f->mod, ec->f->n, neg);
+}
+
+// [2n]b <- (-1)^neg [2n]a (A <- \pm A)
+static void ecpSgnAJ(word a[], register word neg, const ec_o* ec, void* stack)
+{
+	ASSERT(ecIsOperable(ec));
+	ASSERT(ecpSeemsOnJ(a, ec));
+	ASSERT(neg == 0 || neg == 1);
+	// a <- (xa, (-1)^neg ya)
+	zzNegModIf(ecY(a, ec->f->n), ecY(a, ec->f->n), ec->f->mod, ec->f->n, neg);
+}
+
+/*
+*******************************************************************************
+Финишное сложение
+
+Использованы полные (complete) формулы сложения / удвоения из работы [RCB15],
+в свою очередь основанные на формулах работы [BosLen95].
+
+В формулах используются однородные (Homogenious, H) координаты:
+	x = X / Z, y = Y / Z.
+Преобразование H <- J:
+	(X Z : Y : Z^3) <- (X : Y : Z).
+
+\remark Хотя в названии работы [RCB15] фигурируют слова "prime order", формулы
+остаются корректными для групп нечетного порядка. Цитата:
+	``...we point that the word "prime" in our title can be relaxed to "odd";
+	the completeness of the Bosma–Lenstra formulas only requires the
+	non-existence of rational two-torsion points (see Sections 2 and 3), i.e.,
+	that the group order #E(Fq) is not even.''
+
+[RCB15]    Renes J., Costello C., Batina L. Complete addition formulas for
+           prime order elliptic curves. 2015.
+		   https://eprint.iacr.org/2015/1060.pdf.
+[BosLen95] Bosma W., Lenstra H.W. Complete systems of two addition laws
+           for elliptic curves. Journal of Number theory, 53(2):229–240, 1995.
+*******************************************************************************
+*/
+
+#define ecpFinAdd_local(n)\
+/* pt1 */	O_OF_W(3 * n),\
+/* pt2 */	O_OF_W(3 * n),\
+/* pt3 */	O_OF_W(3 * n),\
+/* B3 */	O_OF_W(n),\
+/* t0 */	O_OF_W(n),\
+/* t1 */	O_OF_W(n),\
+/* t2 */	O_OF_W(n),\
+/* t3 */	O_OF_W(n),\
+/* t4 */	O_OF_W(n),\
+/* t5 */	O_OF_W(n)
+
+// [2n]с <- [3n]a + [3n]b (A <- J + J)
+static bool_t ecpFinAdd(word c[], const word a[], const word b[],
+	const ec_o* ec, void* stack)
+{
+	size_t n;
+	register bool_t ret;
+	word* pt1;			/* [3 * n] */
+	word* pt2;			/* [3 * n] */
+	word* pt3;			/* [3 * n] */
+	word* B3;			/* [n] */
+	word* t0;			/* [n] */
+	word* t1;			/* [n] */
+	word* t2;			/* [n] */
+	word* t3;			/* [n] */
+	word* t4;			/* [n] */
+	word* t5;			/* [n] */
+	// pre
+	ASSERT(ecIsOperable(ec) && ec->d == 3);
+	ASSERT(ecpSeemsOnJ(a, ec));
+	ASSERT(ecpSeemsOnJ(b, ec));
+	// разметить стек
+	n = ec->f->n;
+	memSlice(stack,
+		ecpFinAdd_local(n), SIZE_0, SIZE_MAX,
+		&pt1, &pt2, &pt3, &B3, &t0, &t1, &t2, &t3, &t4, &t5, &stack);
+	// pt1 <- a (H <- J)
+	qrMul(ecX(pt1), ecX(a), ecZ(a, n), ec->f, stack);
+	wwCopy(ecY(pt1, n), ecY(a, n), n);
+	qrSqr(ecZ(pt1, n), ecZ(a, n), ec->f, stack);
+	qrMul(ecZ(pt1, n), ecZ(pt1, n), ecZ(a, n), ec->f, stack);
+	// pt2 <- b (H <- J)
+	qrMul(ecX(pt2), ecX(b), ecZ(b, n), ec->f, stack);
+	wwCopy(ecY(pt2, n), ecY(b, n), n);
+	qrSqr(ecZ(pt2, n), ecZ(b, n), ec->f, stack);
+	qrMul(ecZ(pt2, n), ecZ(pt2, n), ecZ(b, n), ec->f, stack);
+	// B3 <- 3B
+	qrAdd(B3, ec->B, ec->B, ec->f);
+	qrAdd(B3, B3, ec->B, ec->f);
+	// [RCB15; algorithm 1]
+	qrMul(t0, ecX(pt1), ecX(pt2), ec->f, stack);
+	qrMul(t1, ecY(pt1, n), ecY(pt2, n), ec->f, stack);
+	qrMul(t2, ecZ(pt1, n), ecZ(pt2, n), ec->f, stack);
+	qrAdd(t3, ecX(pt1), ecY(pt1, n), ec->f);
+	qrAdd(t4, ecX(pt2), ecY(pt2, n), ec->f);
+	qrMul(t3, t3, t4, ec->f, stack);
+	qrAdd(t4, t0, t1, ec->f);
+	qrSub(t3, t3, t4, ec->f);
+	qrAdd(t4, ecX(pt1), ecZ(pt1, n), ec->f);
+	qrAdd(t5, ecX(pt2), ecZ(pt2, n), ec->f);
+	qrMul(t4, t4, t5, ec->f, stack);
+	qrAdd(t5, t0, t2, ec->f);
+	qrSub(t4, t4, t5, ec->f);
+	qrAdd(t5, ecY(pt1, n), ecZ(pt1, n), ec->f);
+	qrAdd(ecX(pt3), ecY(pt2, n), ecZ(pt2, n), ec->f);
+	qrMul(t5, t5, ecX(pt3), ec->f, stack);
+	qrAdd(ecX(pt3), t1, t2, ec->f);
+	qrSub(t5, t5, ecX(pt3), ec->f);
+	qrMul(ecZ(pt3, n), ec->A, t4, ec->f, stack);
+	qrMul(ecX(pt3), B3, t2, ec->f, stack);
+	qrAdd(ecZ(pt3, n), ecX(pt3), ecZ(pt3, n), ec->f);
+	qrSub(ecX(pt3), t1, ecZ(pt3, n), ec->f);
+	qrAdd(ecZ(pt3, n), t1, ecZ(pt3, n), ec->f);
+	qrMul(ecY(pt3, n), ecX(pt3), ecZ(pt3, n), ec->f, stack);
+	qrAdd(t1, t0, t0, ec->f);
+	qrAdd(t1, t1, t0, ec->f);
+	qrMul(t2, ec->A, t2, ec->f, stack);
+	qrMul(t4, B3, t4, ec->f, stack);
+	qrAdd(t1, t1, t2, ec->f);
+	qrSub(t2, t0, t2, ec->f);
+	qrMul(t2, ec->A, t2, ec->f, stack);
+	qrAdd(t4, t4, t2, ec->f);
+	qrMul(t0, t1, t4, ec->f, stack);
+	qrAdd(ecY(pt3, n), ecY(pt3, n), t0, ec->f);
+	qrMul(t0, t5, t4, ec->f, stack);
+	qrMul(ecX(pt3), t3, ecX(pt3), ec->f, stack);
+	qrSub(ecX(pt3), ecX(pt3), t0, ec->f);
+	qrMul(t0, t3, t1, ec->f, stack);
+	qrMul(ecZ(pt3, n), t5, ecZ(pt3, n), ec->f, stack);
+	qrAdd(ecZ(pt3, n), ecZ(pt3, n), t0, ec->f);
+	// c <- pt3 (A <- H)
+	ret = !wwIsZero(ecZ(pt3, n), n);
+	qrInv(t0, ecZ(pt3, n), ec->f, stack);
+	qrMul(ecX(c), ecX(pt3), t0, ec->f, stack);
+	qrMul(ecY(c, n), ecY(pt3, n), t0, ec->f, stack);
+	return ret;
+}
+
+static size_t ecpFinAdd_deep(size_t n, size_t f_deep)
+{
+	return memSliceSize(
+		ecpFinAdd_local(n),
+		f_deep,
+		SIZE_MAX);
+}
+
+#define ecpFinAddA_local(n)\
+/* pt1 */	O_OF_W(3 * n),\
+/* pt3 */	O_OF_W(3 * n),\
+/* B3 */	O_OF_W(n),\
+/* t0 */	O_OF_W(n),\
+/* t1 */	O_OF_W(n),\
+/* t2 */	O_OF_W(n),\
+/* t3 */	O_OF_W(n),\
+/* t4 */	O_OF_W(n),\
+/* t5 */	O_OF_W(n)
+
+// [2n]с <- [3n]a + [2n]b (A <- J + A)
+static bool_t ecpFinAddA(word c[], const word a[], const word b[],
+	const ec_o* ec, void* stack)
+{
+	size_t n;
+	register bool_t ret;
+	word* pt1;			/* [3 * n] */
+	word* pt3;			/* [3 * n] */
+	word* B3;			/* [n] */
+	word* t0;			/* [n] */
+	word* t1;			/* [n] */
+	word* t2;			/* [n] */
+	word* t3;			/* [n] */
+	word* t4;			/* [n] */
+	word* t5;			/* [n] */
+	// pre
+	ASSERT(ecIsOperable(ec) && ec->d == 3);
+	ASSERT(ecpSeemsOnJ(a, ec));
+	ASSERT(ecpSeemsOnA(b, ec));
+	// разметить стек
+	n = ec->f->n;
+	memSlice(stack,
+		ecpFinAddA_local(n), SIZE_0, SIZE_MAX,
+		&pt1, &pt3, &B3, &t0, &t1, &t2, &t3, &t4, &t5, &stack);
+	// pt1 <- a (H <- J)
+	qrMul(ecX(pt1), ecX(a), ecZ(a, n), ec->f, stack);
+	wwCopy(ecY(pt1, n), ecY(a, n), n);
+	qrSqr(ecZ(pt1, n), ecZ(a, n), ec->f, stack);
+	qrMul(ecZ(pt1, n), ecZ(pt1, n), ecZ(a, n), ec->f, stack);
+	// B3 <- 3B
+	qrAdd(B3, ec->B, ec->B, ec->f);
+	qrAdd(B3, B3, ec->B, ec->f);
+	// [RCB15; algorithm 2]
+	qrMul(t0, ecX(pt1), ecX(b), ec->f, stack);
+	qrMul(t1, ecY(pt1, n), ecY(b, n), ec->f, stack);
+	qrAdd(t3, ecX(b), ecY(b, n), ec->f);
+	qrAdd(t4, ecX(pt1), ecY(pt1, n), ec->f);
+	qrMul(t3, t3, t4, ec->f, stack);
+	qrAdd(t4, t0, t1, ec->f);
+	qrSub(t3, t3, t4, ec->f);
+	qrMul(t4, ecX(b), ecZ(pt1, n), ec->f, stack);
+	qrAdd(t4, t4, ecX(pt1), ec->f);
+	qrMul(t5, ecY(b, n), ecZ(pt1, n), ec->f, stack);
+	qrAdd(t5, t5, ecY(pt1, n), ec->f);
+	qrMul(ecZ(pt3, n), ec->A, t4, ec->f, stack);
+	qrMul(ecX(pt3), B3, ecZ(pt1, n), ec->f, stack);
+	qrAdd(ecZ(pt3, n), ecX(pt3), ecZ(pt3, n), ec->f);
+	qrSub(ecX(pt3), t1, ecZ(pt3, n), ec->f);
+	qrAdd(ecZ(pt3, n), t1, ecZ(pt3, n), ec->f);
+	qrMul(ecY(pt3, n), ecX(pt3), ecZ(pt3, n), ec->f, stack);
+	qrAdd(t1, t0, t0, ec->f);
+	qrAdd(t1, t1, t0, ec->f);
+	qrMul(t2, ec->A, ecZ(pt1, n), ec->f, stack);
+	qrMul(t4, B3, t4, ec->f, stack);
+	qrAdd(t1, t1, t2, ec->f);
+	qrSub(t2, t0, t2, ec->f);
+	qrMul(t2, ec->A, t2, ec->f, stack);
+	qrAdd(t4, t4, t2, ec->f);
+	qrMul(t0, t1, t4, ec->f, stack);
+	qrAdd(ecY(pt3, n), ecY(pt3, n), t0, ec->f);
+	qrMul(t0, t5, t4, ec->f, stack);
+	qrMul(ecX(pt3), t3, ecX(pt3), ec->f, stack);
+	qrSub(ecX(pt3), ecX(pt3), t0, ec->f);
+	qrMul(t0, t3, t1, ec->f, stack);
+	qrMul(ecZ(pt3, n), t5, ecZ(pt3, n), ec->f, stack);
+	qrAdd(ecZ(pt3, n), ecZ(pt3, n), t0, ec->f);
+	// c <- pt3 (A <- H)
+	ret = !wwIsZero(ecZ(pt3, n), n);
+	qrInv(t0, ecZ(pt3, n), ec->f, stack);
+	qrMul(ecX(c), ecX(pt3), t0, ec->f, stack);
+	qrMul(ecY(c, n), ecY(pt3, n), t0, ec->f, stack);
+	return ret;
+}
+
+static size_t ecpFinAddA_deep(size_t n, size_t f_deep)
+{
+	return memSliceSize(
+		ecpFinAddA_local(n),
+		f_deep,
+		SIZE_MAX);
+}
+
+/*
+*******************************************************************************
+Создание кривой
+*******************************************************************************
+*/
+
+#define ecpCreateJ_state(n)\
+/* A */			O_OF_W(n),\
+/* B */			O_OF_W(n),\
+/* base */		O_OF_W(2 * n),\
+/* order */		O_OF_W(n + 1)
+
+#define ecpCreateJ_local(n)\
+/* t */			O_OF_W(n)
+
+bool_t ecpCreateJ(ec_o* ec, const qr_o* f, const octet A[], const octet B[],
+	bool_t odd_order, void* stack)
+{
+	register bool_t bA3;
+	word* t; 			/* [n] */
+	// pre
+	ASSERT(memIsValid(ec, sizeof(ec_o)));
+	ASSERT(gfpIsOperable(f));
+	ASSERT(memIsValid(A, f->no)); 
+	ASSERT(memIsValid(B, f->no));
+	// f->mod > 3?
+	if (wwCmpW(f->mod, f->n, 3) <= 0)
+		return FALSE;
+	// обнулить
+	memSetZero(ec, sizeof(ec_o));
+	// зафиксировать размерность d
+	ec->d = 3;
+	// запомнить базовое поле
+	ec->f = f;
+	// разметить состояние и стек
+	memSlice(ec->descr,
+		ecpCreateJ_state(f->n), SIZE_MAX,
+		&ec->A, &ec->B, &ec->base, &ec->order);
+	memSlice(stack,
+		ecpCreateJ_local(f->n), SIZE_0, SIZE_MAX,
+		&t, &stack);
+	// сохранить коэффициенты
+	if (!qrFrom(ec->A, A, ec->f, stack) || !qrFrom(ec->B, B, ec->f, stack))
+		return FALSE;
+	// t <- -3
+	gfpDouble(t, f->unity, f);
+	zmAdd(t, t, f->unity, f);
+	zmNeg(t, t, f);
+	// bA3 <- A == -3?
+	bA3 = qrCmp(t, ec->A, f) == 0;
+	// настроить интерфейсы
+	ec->froma = ecpFromAJ;
+	ec->toa = ecpToAJ;
+	ec->neg = ecpNegJ;
+	ec->nega = ecpNegAJ;
+	ec->add = ecpAddJ;
+	ec->adda = ecpAddAJ;
+	ec->dbl = bA3 ? ecpDblJA3 : ecpDblJ;
+	ec->dbla = ecpDblAJ;
+	ec->tpl = bA3 ? ecpTplJA3 : ecpTplJ;
+	ec->dbladda = ecpDblAddAJ;
+	ec->sgn = ecpSgnJ;
+	ec->sgna = ecpSgnAJ;
+	if (odd_order)
+	{
+		ec->finadd = ecpFinAdd;
+		ec->finadda = ecpFinAddA;
+	}
+	// для простоты учитываем в том числе глубину ecpFinAdd/ecpFinAddA
+	ec->deep = utilMax(9,
+		ecpToAJ_deep(f->n, f->deep),
+		ecpAddJ_deep(f->n, f->deep),
+		ecpAddAJ_deep(f->n, f->deep),
+		bA3 ? ecpDblJA3_deep(f->n, f->deep) : ecpDblJ_deep(f->n, f->deep),
+		ecpDblAJ_deep(f->n, f->deep),
+		ecpDblAddAJ_deep(f->n, f->deep),
+		bA3 ? ecpTplJA3_deep(f->n, f->deep) : ecpTplJ_deep(f->n, f->deep),
+		ecpFinAdd_deep(f->n, f->deep),
+		ecpFinAddA_deep(f->n, f->deep));
+	// настроить
+	ec->hdr.keep = sizeof(ec_o) + 
+		memSliceSize(ecpCreateJ_state(f->n), SIZE_MAX);
+	ec->hdr.p_count = 6;
+	ec->hdr.o_count = 1;
+	// все нормально
+	CLEAN(bA3);
+	return TRUE;
+}
+
+size_t ecpCreateJ_keep(size_t n)
+{
+	return sizeof(ec_o) + 
+		memSliceSize(ecpCreateJ_state(n), SIZE_MAX);
+}
+
+size_t ecpCreateJ_deep(size_t n, size_t f_deep)
+{
+	return memSliceSize(
+		ecpCreateJ_local(n),
+		utilMax(12,
+			O_OF_W(n),
+			ecpToAJ_deep(n, f_deep),
+			ecpAddJ_deep(n, f_deep),
+			ecpAddAJ_deep(n, f_deep),
+			ecpDblJ_deep(n, f_deep),
+			ecpDblJA3_deep(n, f_deep),
+			ecpDblAJ_deep(n, f_deep),
+			ecpTplJ_deep(n, f_deep),
+			ecpTplJA3_deep(n, f_deep),
+			ecpDblAddAJ_deep(n, f_deep),
+			ecpFinAdd_deep(n, f_deep),
+			ecpFinAddA_deep(n, f_deep)),
+		SIZE_MAX);
+}

@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  secure-chat-server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: secure-chat-server:latest
+    container_name: secure_chat_server
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - LOG_LEVEL=INFO
+      - MESSAGE_TTL_SECONDS=86400
+      - MAX_QUEUE_PER_USER=1000
+      - CORS_ORIGINS=*
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; exit(0 if urllib.request.urlopen('http://localhost:8000/api/health').getcode() == 200 else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+    networks:
+      - secure_chat_net
+
+networks:
+  secure_chat_net:
+    driver: bridge

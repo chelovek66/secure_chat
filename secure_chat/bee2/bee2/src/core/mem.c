@@ -1,0 +1,634 @@
+/*
+*******************************************************************************
+\file mem.c
+\brief Memory management
+\project bee2 [cryptographic library]
+\created 2012.12.18
+\version 2026.03.15
+\copyright The Bee2 authors
+\license Licensed under the Apache License, Version 2.0 (see LICENSE.txt).
+*******************************************************************************
+*/
+
+#include "bee2/defs.h"
+
+#ifdef OS_WIN
+	#include <windows.h>
+#else
+	#include <memory.h>
+	#include <string.h>
+	#ifndef OS_APPLE
+		#include <malloc.h>
+	#else
+		#include <stdlib.h>
+	#endif
+#endif
+#include <stdarg.h>
+
+#include "bee2/core/mem.h"
+#include "bee2/core/util.h"
+#include "bee2/core/word.h"
+
+/*
+*******************************************************************************
+Проверка
+
+\todo Реализовать полноценную проверку корректности памяти.
+*******************************************************************************
+*/
+
+bool_t memIsValid(const void* buf, size_t count)
+{
+	return count == 0 || buf != 0;
+}
+
+/*
+*******************************************************************************
+Выравнивание
+
+\remark В первых редакциях модуля (вплоть до 2025-09-22) буферы памяти 
+по возможности обрабатывались как массивы машинных слов (word). При этом 
+не учитывалось выравнивание буферов на границу машшинного слова. Чтобы учесть
+выравнивание, нужно либо 
+a) перейти к работе с буферами как массивами октетов, либо 
+b) усложнять функции, придавая им довольно громоздкую форму.
+
+Был выбран вариант a). Для быстрой работы с массивами машинных слов можно 
+переключиться на функции модуля ww.
+*******************************************************************************
+*/
+
+#ifndef UINTPTR_MAX
+typedef size_t uintptr_t;
+#endif
+
+bool_t memIsAligned(const void* buf, size_t alignment)
+{
+	return (uintptr_t)buf % alignment == 0;
+}
+
+/*
+*******************************************************************************
+Стандартные функции
+
+\remark Перед вызовом memcpy(), memmove(), memset() проверяется, 
+что count != 0: при count == 0 поведение стандартных функций непредсказуемо
+(см. https://www.imperialviolet.org/2016/06/26/nonnull.html).
+
+\remark Прямое обращение к функции ядра HeapAlloc() решает проблему 
+с освобождением памяти в плагине bee2evp, связывающем bee2 с OpenSSL (1.1.0).
+*******************************************************************************
+*/
+
+void memCopy(void* dest, const void* src, size_t count)
+{
+	ASSERT(memIsDisjoint(src, dest, count));
+	if (count)
+		memcpy(dest, src, count);
+}
+
+void memMove(void* dest, const void* src, size_t count)
+{
+	ASSERT(memIsValid(src, count));
+	ASSERT(memIsValid(dest, count));
+	if (count)
+		memmove(dest, src, count);
+}
+
+void memSet(void* buf, octet c, size_t count)
+{
+	ASSERT(memIsValid(buf, count));
+	if (count)
+		memset(buf, c, count);
+}
+
+void memNeg(void* buf, size_t count)
+{
+	ASSERT(memIsValid(buf, count));
+	while (count--)
+	{
+		*(octet*)buf = ~*(octet*)buf;
+		buf = (octet*)buf + 1;
+	}
+}
+
+void* memAlloc(size_t count)
+{
+#ifdef OS_WIN
+	return HeapAlloc(GetProcessHeap(), 0, count);
+#else
+	return malloc(count);
+#endif
+}
+
+void* memRealloc(void* buf, size_t count)
+{
+	if (count == 0)
+	{
+		memFree(buf);
+		return 0;
+	}
+#ifdef OS_WIN
+	if (!buf)
+		return HeapAlloc(GetProcessHeap(), 0, count);
+	return HeapReAlloc(GetProcessHeap(), 0, buf, count);
+#else
+	return realloc(buf, count);
+#endif
+}
+
+void memFree(void* buf)
+{
+#ifdef OS_WIN
+	HeapFree(GetProcessHeap(), 0, buf);
+#else
+	free(buf);
+#endif
+}
+
+
+/*
+*******************************************************************************
+Сравнение буферов памяти
+*******************************************************************************
+*/
+
+bool_t memEq(const void* buf1, const void* buf2, size_t count)
+{
+	register word diff = 0;
+	ASSERT(memIsValid(buf1, count));
+	ASSERT(memIsValid(buf2, count));
+	while (count--)
+	{
+		diff |= *(const octet*)buf1 ^ *(const octet*)buf2;
+		buf1 = (const octet*)buf1 + 1;
+		buf2 = (const octet*)buf2 + 1;
+	}
+	return wordEq(diff, 0);
+}
+
+bool_t FAST(memEq)(const void* buf1, const void* buf2, size_t count)
+{
+	ASSERT(memIsValid(buf1, count));
+	ASSERT(memIsValid(buf2, count));
+	return memcmp(buf1, buf2, count) == 0;
+}
+
+int memCmp(const void* buf1, const void* buf2, size_t count)
+{
+	register word less = 0;
+	register word greater = 0;
+	register word w1 = 0;
+	register word w2 = 0;
+	const octet* b1 = (const octet*)buf1;
+	const octet* b2 = (const octet*)buf2;
+	size_t filled = 0;
+	ASSERT(memIsValid(buf1, count));
+	ASSERT(memIsValid(buf2, count));
+	for (; count--; ++b1, ++b2)
+	{
+		w1 = w1 << 8 | *b1;
+		w2 = w2 << 8 | *b2;
+		if (++filled == O_PER_W)
+		{
+			less |= ~greater & wordLess(w1, w2);
+			greater |= ~less & wordGreater(w1, w2);
+			filled = 0;
+		}
+	}
+	if (filled)
+	{
+		less |= ~greater & wordLess(w1, w2);
+		greater |= ~less & wordGreater(w1, w2);
+	}
+	CLEAN2(w1, w2);
+	return (wordEq(less, 0) - 1) | wordNeq(greater, 0);
+}
+
+int FAST(memCmp)(const void* buf1, const void* buf2, size_t count)
+{
+	const octet* b1 = (const octet*)buf1;
+	const octet* b2 = (const octet*)buf2;
+	ASSERT(memIsValid(buf1, count));
+	ASSERT(memIsValid(buf2, count));
+	for (; count--; ++b1, ++b2)
+		if (*b1 > *b2)
+			return 1;
+		else if (*b1 < *b2)
+			return -1;
+	return 0;
+}
+
+int memCmpRev(const void* buf1, const void* buf2, size_t count)
+{
+	register word less = 0;
+	register word greater = 0;
+	register word w1 = 0;
+	register word w2 = 0;
+	size_t filled = 0;
+	ASSERT(memIsValid(buf1, count));
+	ASSERT(memIsValid(buf2, count));
+	while (count--)
+	{
+		w1 = w1 << 8 | ((const octet*)buf1)[count];
+		w2 = w2 << 8 | ((const octet*)buf2)[count];
+		if (++filled == O_PER_W)
+		{
+			less |= ~greater & wordLess(w1, w2);
+			greater |= ~less & wordGreater(w1, w2);
+			filled = 0;
+		}
+	}
+	if (filled)
+	{
+		less |= ~greater & wordLess(w1, w2);
+		greater |= ~less & wordGreater(w1, w2);
+	}
+	CLEAN2(w1, w2);
+	return (wordEq(less, 0) - 1) | wordNeq(greater, 0);
+}
+
+int FAST(memCmpRev)(const void* buf1, const void* buf2, size_t count)
+{
+	const octet* b1 = (const octet*)buf1 + count;
+	const octet* b2 = (const octet*)buf2 + count;
+	ASSERT(memIsValid(buf1, count));
+	ASSERT(memIsValid(buf2, count));
+	while (count--)
+		if (*--b1 > *--b2)
+			return 1;
+		else if (*b1 < *b2)
+			return -1;
+	return 0;
+}
+
+/*
+*******************************************************************************
+Очистка буфера памяти
+
+Методы очистки памяти с защитой от оптимизаторов:
+
+[YJO+17] Yang Z., Johannesmeyer B., Olesen A., Lerner S., Levchenko K.
+         Dead Store Elimination (Still) Considered Harmful. USENIX Security
+		 2017: 26th USENIX Security Symposium, pp. 1025–1040, 2017.
+		 https://www.usenix.org/system/files/conference/usenixsecurity17/
+	     sec17-yang.pdf
+
+Реализован метод "Volatile Function Pointer". Он используется также в OpenSSL
+версии 1.0.2 и выше. В [YJO+17] подтверждается безопасность метода при
+использовании GCC, Clang и Microsoft Visual Studio.
+
+\remark В предыдущей редакции memWipe() был реализован метод
+"Complicated Computation":
+\code
+void memWipe(void* buf, size_t count)
+{
+	static octet wipe_ctr = 0;
+	volatile octet* p = (octet*)buf;
+	size_t ctr = wipe_ctr;
+	size_t i = count;
+	ASSERT(memIsValid(buf, count));
+	// вычисления, которые должны показаться полезными оптимизатору
+	while (i--)
+		*(p++) = (octet)ctr, ctr += 17 + ((size_t)p & 15);
+	p = memchr(buf, (octet)ctr, count);
+	if (p)
+		ctr += (63 + (size_t)p);
+	wipe_ctr = (octet)ctr;
+}
+\endcode
+Заимствован код функции OPENSSL_cleanse() библиотеки OpenSSL версии < 1.0.2.
+*******************************************************************************
+*/
+
+typedef void (*memset_i)(void*, octet, size_t);
+static volatile memset_i memSet_volatile = memSet;
+
+void memWipe(void *buf, size_t count)
+{
+	memSet_volatile(buf, 0, count);
+}
+
+/*
+*******************************************************************************
+Другие функции
+*******************************************************************************
+*/
+
+bool_t memIsZero(const void* buf, size_t count)
+{
+	register word diff = 0;
+	ASSERT(memIsValid(buf, count));
+	while (count--)
+	{
+		diff |= *(const octet*)buf;
+		buf = (const octet*)buf + 1;
+	}
+	return (bool_t)wordEq(diff, 0);
+}
+
+bool_t FAST(memIsZero)(const void* buf, size_t count)
+{
+	ASSERT(memIsValid(buf, count));
+	for (; count--; buf = (const octet*)buf + 1)
+		if (*(const octet*)buf)
+			return FALSE;
+	return TRUE;
+}
+
+size_t memNonZeroSize(const void* buf, size_t count)
+{
+	ASSERT(memIsValid(buf, count));
+	while (count--)
+		if (*((const octet*)buf + count))
+			return count + 1;
+	return 0;
+}
+
+bool_t memIsRep(const void* buf, size_t count, octet o)
+{
+	register word diff = 0;
+	ASSERT(memIsValid(buf, count));
+	for (; count--; buf = (const octet*)buf + 1)
+		diff |= *(const octet*)buf ^ o;
+	return wordEq(diff, 0);
+}
+
+bool_t FAST(memIsRep)(const void* buf, size_t count, octet o)
+{
+	ASSERT(memIsValid(buf, count));
+	for (; count--; buf = (const octet*)buf + 1)
+		if (*(const octet*)buf != o)
+			return FALSE;
+	return TRUE;
+}
+
+bool_t memIsDisjoint(const void* buf1, const void* buf2, size_t count)
+{
+	ASSERT(memIsValid(buf1, count));
+	ASSERT(memIsValid(buf2, count));
+	return count == 0 || (const octet*)buf1 + count <= (const octet*)buf2 ||
+		(const octet*)buf1 >= (const octet*)buf2 + count;
+}
+
+bool_t memIsSameOrDisjoint(const void* buf1, const void* buf2, size_t count)
+{
+	ASSERT(memIsValid(buf1, count));
+	ASSERT(memIsValid(buf2, count));
+	return buf1 == buf2 || count == 0 ||
+		(const octet*)buf1 + count <= (const octet*)buf2 ||
+		(const octet*)buf1 >= (const octet*)buf2 + count;
+}
+
+bool_t memIsDisjoint2(const void* buf1, size_t count1,
+	const void* buf2, size_t count2)
+{
+	ASSERT(memIsValid(buf1, count1));
+	ASSERT(memIsValid(buf2, count2));
+	return count1 == 0 || count2 == 0 ||
+		(const octet*)buf1 + count1 <= (const octet*)buf2 ||
+		(const octet*)buf1 >= (const octet*)buf2 + count2;
+}
+
+bool_t memIsDisjoint3(const void* buf1, size_t count1,
+	const void* buf2, size_t count2,
+	const void* buf3, size_t count3)
+{
+	return memIsDisjoint2(buf1, count1, buf2, count2) &&
+		memIsDisjoint2(buf1, count1, buf3, count3) &&
+		memIsDisjoint2(buf2, count2, buf3, count3);
+}
+
+bool_t memIsDisjoint4(const void* buf1, size_t count1,
+	const void* buf2, size_t count2,
+	const void* buf3, size_t count3,
+	const void* buf4, size_t count4)
+{
+	return memIsDisjoint2(buf1, count1, buf2, count2) &&
+		memIsDisjoint2(buf1, count1, buf3, count3) &&
+		memIsDisjoint2(buf1, count1, buf4, count4) &&
+		memIsDisjoint3(buf2, count2, buf3, count3, buf4, count4);
+}
+
+void memJoin(void* dest, const void* src1, size_t count1, const void* src2,
+	size_t count2)
+{
+	register octet o;
+	size_t i;
+	ASSERT(memIsValid(src1, count1));
+	ASSERT(memIsValid(src2, count2));
+	ASSERT(memIsValid(dest, count1 + count2));
+repeat:
+	if (memIsDisjoint2(dest, count1, src2, count2))
+	{
+		memMove(dest, src1, count1);
+		memMove((octet*)dest + count1, src2, count2);
+	}
+	else if (memIsDisjoint2((octet*)dest + count1, count2, src1, count1))
+	{
+		memMove((octet*)dest + count1, src2, count2);
+		memMove(dest, src1, count1);
+	}
+	else if (memIsDisjoint2(dest, count2, src1, count1))
+	{
+		// dest <- src2 || src1
+		memMove(dest, src2, count2);
+		memMove((octet*)dest + count2, src1, count1);
+		// dest <- dest <<< count2
+		for (i = 0; i < count2; ++i)
+		{
+			o = ((octet*)dest)[0];
+			memMove(dest, (octet*)dest + 1, count1 + count2 - 1);
+			((octet*)dest)[count1 + count2 - 1] = o;
+		}
+	}
+	else if (memIsDisjoint2((octet*)dest + count2, count1, src2, count2))
+	{
+		// dest <- src2 || src1
+		memMove((octet*)dest + count2, src1, count1);
+		memMove(dest, src2, count2);
+		// dest <- dest <<< count2
+		for (i = 0; i < count2; ++i)
+		{
+			o = ((octet*)dest)[0];
+			memMove(dest, (octet*)dest + 1, count1 + count2 - 1);
+			((octet*)dest)[count1 + count2 - 1] = o;
+		}
+	}
+	else
+	{
+		// src1 (src2) пересекается и с префиксом, и с суффиксом dest
+		// длины count2 (count1) => и первый, и последний октет dest
+		// не входят не входят ни в src1, ни в src2
+		((octet*)dest)[0] = ((const octet*)src1)[0];
+		((octet*)dest)[count1 + count2 - 1] = ((const octet*)src2)[count2 - 1];
+		VERIFY(count1--);
+		VERIFY(count2--);
+		src1 = (const octet*)src1 + 1;
+		dest = (octet*)dest + 1;
+		goto repeat;
+	}
+}
+
+void memXor(void* dest, const void* src1, const void* src2, size_t count)
+{
+	ASSERT(memIsSameOrDisjoint(src1, dest, count));
+	ASSERT(memIsSameOrDisjoint(src2, dest, count));
+	while (count--)
+	{
+		*(octet*)dest = *(const octet*)src1 ^ *(const octet*)src2;
+		src1 = (const octet*)src1 + 1;
+		src2 = (const octet*)src2 + 1;
+		dest = (octet*)dest + 1;
+	}
+}
+
+void memXor2(void* dest, const void* src, size_t count)
+{
+	ASSERT(memIsSameOrDisjoint(src, dest, count));
+	while (count--)
+	{
+		*(octet*)dest ^= *(const octet*)src;
+		src = (const octet*)src + 1;
+		dest = (octet*)dest + 1;
+	}
+}
+
+void memSwap(void* buf1, void* buf2, size_t count)
+{
+	ASSERT(memIsDisjoint(buf1, buf2, count));
+	while (count--)
+	{
+		SWAP(*(octet*)buf1, *(octet*)buf2);
+		buf1 = (octet*)buf1 + 1;
+		buf2 = (octet*)buf2 + 1;
+	}
+}
+
+void memRev(void* buf, size_t count)
+{
+	register size_t i = count / 2;
+	ASSERT(memIsValid(buf, count));
+	while (i--)
+	{
+		((octet*)buf)[i] ^= ((octet*)buf)[count - 1 - i];
+		((octet*)buf)[count - 1 - i] ^= ((octet*)buf)[i];
+		((octet*)buf)[i] ^= ((octet*)buf)[count - 1 - i];
+	}
+}
+
+#define CACHE_LINE_SIZE 64
+
+void memPrefetch(const void* buf, size_t count)
+{
+	register octet sum;
+	size_t i;
+	ASSERT(memIsValid(buf, count));
+	for (i = 0, sum = 0; i < count; i += CACHE_LINE_SIZE)
+		sum += ((const octet*)buf)[i];
+	CLEAN(sum);
+}
+
+/*
+*******************************************************************************
+Разметка памяти
+
+\remark Макрос va_copy поддержан в Visual Studio только в 2013 году.
+\remark Неотрицательное целое n является степенью двойки <=>
+	(n & (n - 1)) == 0.
+*******************************************************************************
+*/
+
+#if defined(_MSC_VER) && _MSC_VER < 1800
+	#define va_copy(dest, src) ((dest) = (src))
+#endif
+
+#define memSliceSizeof(c)\
+	(CASSERT((sizeof(mem_align_t) & (sizeof(mem_align_t) - 1)) == 0),\
+		((c + sizeof(mem_align_t) - 1) & ~(sizeof(mem_align_t) - 1)))
+
+size_t memSliceSizeArgs(size_t c1, va_list args)
+{
+	size_t size;
+	size_t s;
+	size_t c;
+	// просмотреть ci
+	for (size = s = 0, c = c1; c != SIZE_MAX;)
+	{
+		if ((c & SIZE_HI) == 0)
+		{
+			s = memSliceSizeof(s);
+			size += s;
+			s = c;
+		}
+		else if ((c &= ~SIZE_HI) > s)
+			s = c;
+		c = va_arg(args, size_t);
+	}
+	return size + s;
+}
+
+void memSliceArgs(const void* buf, size_t c1, va_list args)
+{
+	va_list args1;
+	size_t s;
+	size_t c;
+	// pre
+	ASSERT(memIsAligned(buf, sizeof(mem_align_t)));
+	// найти p1
+	va_copy(args1, args);
+	for (c = c1; c != SIZE_MAX;)
+		c = va_arg(args1, size_t);
+	// просмотреть (ci, pi)
+	for (s = 0, c = c1; c != SIZE_MAX;)
+	{
+		const void** p;
+		if ((c & SIZE_HI) == 0)
+		{
+			s = memSliceSizeof(s);
+			buf = (const octet*)buf + s;
+			s = 0;
+		}
+		p = va_arg(args1, const void**);
+		ASSERT(memIsValid(p, sizeof(const void*)));
+		ASSERT(memIsAligned(buf, sizeof(mem_align_t)));
+		*p = buf;
+		if ((c & SIZE_HI) != 0)
+		{
+			if ((c &= ~SIZE_HI) > s)
+				s = c;
+		}
+		else
+			s = c;
+		c = va_arg(args, size_t);
+	}
+	va_end(args1);
+}
+
+size_t memSliceSize(size_t c1, ...)
+{
+	va_list args;
+	size_t size;	
+	va_start(args, c1);
+	size = memSliceSizeArgs(c1, args);
+	va_end(args);
+	return size;
+}
+
+void memSlice(const void* buf, size_t c1, ...)
+{
+	va_list args;
+	va_start(args, c1);
+	memSliceArgs(buf, c1, args);
+	va_end(args);
+}
+
+void* memSliceNext(void* ptr, size_t count)
+{
+	return (octet*)ptr + memSliceSizeof(count);
+}
+
+const void* memSliceNext2(const void* ptr, size_t count)
+{
+	return (const octet*)ptr + memSliceSizeof(count);
+}
