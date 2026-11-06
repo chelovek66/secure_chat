@@ -47,3 +47,14 @@ logs/
 # Temporary assignment task notes and instructions
 pz*.txt
 tz*.txt
+
+# Non-project files & lab scratch files
+lr1.py
+serverlr1.py
+*2.py
+*.docx
+
+# Runtime generated cryptographic keys
+secure_chat/keys/*.bkey
+keys/*.bkey
+
