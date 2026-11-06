@@ -1,0 +1,17 @@
+{
+    "app_name": "Secure Chat (СТБ 34.101.45/31/47)",
+    "version": "2.1.0-STB",
+    "build_number": 105,
+    "build_date": "24.10.2026 09:55:00",
+    "git_commit": "main-release",
+    "git_branch": "main",
+    "python_version": "3.12.0",
+    "platform": "Windows",
+    "crypto_engine": "Fallback Software Engine (СТБ 34.101.хх / 256-bit)",
+    "stb_standards": [
+        "СТБ 34.101.45-2013 (bign)",
+        "СТБ 34.101.31-2011 (belt-che)",
+        "СТБ 34.101.47-2017 (bash256)",
+        "СТБ 34.101.78-2017 (belt-kwp)"
+    ]
+}

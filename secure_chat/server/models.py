@@ -8,16 +8,17 @@ from pydantic import BaseModel, Field, field_validator
 
 class RegisterRequest(BaseModel):
     """Модель регистрации открытого ключа пользователя."""
-    user_id: str = Field(..., min_length=1, max_length=64, description="Уникальный идентификатор (псевдоним) пользователя")
+    user_id: Optional[str] = Field(None, max_length=64, description="Уникальный идентификатор (псевдоним) пользователя")
+    login: Optional[str] = Field(None, max_length=64, description="Логин пользователя (синоним user_id)")
     public_key: str = Field(..., min_length=32, description="Открытый ключ bign (шестнадцатеричная или Base64 строка)")
+    password: Optional[str] = Field(None, description="Пароль пользователя при регистрации с аутентификацией")
+    device_id: Optional[str] = Field(None, description="Идентификатор устройства")
 
-    @field_validator("user_id")
-    @classmethod
-    def validate_user_id(cls, v: str) -> str:
-        v_clean = v.strip()
-        if not v_clean:
+    def get_user_id(self) -> str:
+        uid = self.user_id or self.login
+        if not uid or not uid.strip():
             raise ValueError("Идентификатор пользователя не может состоять только из пробелов")
-        return v_clean
+        return uid.strip()
 
     @field_validator("public_key")
     @classmethod
@@ -32,6 +33,7 @@ class UserResponse(BaseModel):
     """Модель профиля зарегистрированного пользователя."""
     user_id: str
     public_key: str
+    device_id: Optional[str] = None
 
 
 class SendMessageRequest(BaseModel):
@@ -116,6 +118,7 @@ class DbUserResponse(BaseModel):
     status: str
     client_version: Optional[str] = None
     ip_address: Optional[str] = None
+    device_id: Optional[str] = None
 
 
 class AuditLogResponse(BaseModel):
@@ -128,18 +131,18 @@ class AuditLogResponse(BaseModel):
 
 
 class UserRegisterRequest(BaseModel):
-    """Модель регистрации нового пользователя с паролем и открытым ключом bign."""
-    user_id: str = Field(..., min_length=2, max_length=64, description="Логин пользователя")
+    """Модель регистрации нового пользователя с паролем, открытым ключом bign и привязкой устройства."""
+    user_id: Optional[str] = Field(None, max_length=64, description="Логин пользователя")
+    login: Optional[str] = Field(None, max_length=64, description="Логин пользователя (синоним user_id)")
     password: str = Field(..., min_length=3, max_length=128, description="Пароль пользователя")
     public_key: str = Field(..., min_length=32, description="Открытый ключ bign")
+    device_id: Optional[str] = Field(None, description="Отпечаток устройства (Device Fingerprint)")
 
-    @field_validator("user_id")
-    @classmethod
-    def validate_user_id(cls, v: str) -> str:
-        v_clean = v.strip()
-        if not v_clean:
-            raise ValueError("Идентификатор пользователя не может состоять только из пробелов")
-        return v_clean
+    def get_user_id(self) -> str:
+        uid = self.user_id or self.login
+        if not uid or not uid.strip():
+            raise ValueError("Необходимо указать login или user_id")
+        return uid.strip()
 
     @field_validator("password")
     @classmethod
@@ -150,9 +153,17 @@ class UserRegisterRequest(BaseModel):
 
 
 class UserLoginRequest(BaseModel):
-    """Модель аутентификации пользователя по логину и паролю."""
-    user_id: str = Field(..., min_length=1, max_length=64)
+    """Модель аутентификации пользователя по логину, паролю и отпечатку устройства."""
+    user_id: Optional[str] = Field(None, max_length=64)
+    login: Optional[str] = Field(None, max_length=64)
     password: str = Field(..., min_length=1, max_length=128)
+    device_id: Optional[str] = Field(None, description="Отпечаток устройства (Device Fingerprint)")
+
+    def get_user_id(self) -> str:
+        uid = self.user_id or self.login
+        if not uid or not uid.strip():
+            raise ValueError("Необходимо указать login или user_id")
+        return uid.strip()
 
 
 class AuthResponse(BaseModel):
@@ -161,3 +172,29 @@ class AuthResponse(BaseModel):
     message: str
     user_id: str
     public_key: Optional[str] = None
+    token: Optional[str] = None
+    access_token: Optional[str] = None
+    device_id: Optional[str] = None
+    status: Optional[str] = "ok"
+
+
+class LoginResponse(BaseModel):
+    """Модель успешного ответа на вход пользователя с выдачей токена."""
+    token: str
+    access_token: str
+    token_type: str = "bearer"
+    user_id: str
+    public_key: Optional[str] = None
+    device_id: Optional[str] = None
+    expires_in: int = 1800
+
+
+class MeResponse(BaseModel):
+    """Модель ответа эндпоинта проверки сессии /me."""
+    user_id: str
+    login: str
+    public_key: str
+    device_id: Optional[str] = None
+    status: str = "active"
+    registered_at: Optional[str] = None
+    last_seen_at: Optional[str] = None

@@ -39,11 +39,27 @@ class ApiClient:
     def __init__(self, base_url: str = "http://127.0.0.1:8000"):
         self.base_url = base_url.rstrip("/")
         self.user_id: Optional[str] = None
+        # Хранение сессионного токена только в оперативной памяти (без записи на диск/лог)
+        self._token: Optional[str] = None
+        try:
+            from common.fingerprint import get_device_fingerprint
+            self.device_id: Optional[str] = get_device_fingerprint()
+        except Exception:
+            self.device_id = None
+
         self._session = requests.Session()
         self._session.headers.update({
             "User-Agent": "SecureChat-Client/2.0 (Belarusian-STB; Bee2-Engine)",
             "Accept": "application/json",
         })
+
+    @property
+    def token(self) -> Optional[str]:
+        return self._token
+
+    @token.setter
+    def token(self, value: Optional[str]) -> None:
+        self._token = value
 
     def set_base_url(self, url: str) -> None:
         """Обновляет базовый URL сервера."""
@@ -53,6 +69,13 @@ class ApiClient:
         silent = kwargs.pop("silent", False)
         url = f"{self.base_url}{endpoint}"
         kwargs.setdefault("timeout", self.DEFAULT_TIMEOUT_SEC)
+
+        # Автоматическая отправка заголовка Authorization: Bearer <token>
+        if self._token:
+            req_headers = kwargs.get("headers", {})
+            if "Authorization" not in req_headers:
+                req_headers["Authorization"] = f"Bearer {self._token}"
+                kwargs["headers"] = req_headers
 
         try:
             logger.debug(f"→ {method} {endpoint}")
@@ -89,41 +112,115 @@ class ApiClient:
         except Exception:
             return False
 
-    def register(self, user_id: str, public_key_hex: str, silent: bool = False) -> bool:
-        """
-        Регистрирует открытый ключ bign пользователя на сервере (POST /register).
-        """
+    def register(
+        self,
+        user_id: str,
+        public_key_hex: str,
+        password: Optional[str] = None,
+        device_id: Optional[str] = None,
+        silent: bool = False,
+    ) -> Any:
+        dev_id = device_id if device_id is not None else self.device_id
         payload = {
             "user_id": user_id,
+            "login": user_id,
             "public_key": public_key_hex,
         }
+        if password:
+            payload["password"] = password
+        if dev_id:
+            payload["device_id"] = dev_id
+
         res = self._request("POST", "/register", json=payload, silent=silent)
         self.user_id = user_id
+        if isinstance(res, dict):
+            token = res.get("token") or res.get("access_token")
+            if token:
+                self._token = token
+            if password:
+                return res
         return res.get("status") == "ok"
 
-    def auth_register(self, user_id: str, password: str, public_key_hex: str, silent: bool = False) -> dict:
-        """
-        Регистрирует нового пользователя с логином, паролем и открытым ключом bign (POST /auth/register).
-        """
+    def login(
+        self,
+        login: str,
+        password: str,
+        device_id: Optional[str] = None,
+        silent: bool = False,
+    ) -> dict:
+        dev_id = device_id if device_id is not None else self.device_id
+        payload = {
+            "login": login,
+            "user_id": login,
+            "password": password,
+        }
+        if dev_id:
+            payload["device_id"] = dev_id
+
+        res = self._request("POST", "/login", json=payload, silent=silent)
+        self.user_id = login
+        if isinstance(res, dict):
+            token = res.get("token") or res.get("access_token")
+            if token:
+                self._token = token
+        return res
+
+    def logout(self, silent: bool = False) -> bool:
+        try:
+            res = self._request("POST", "/logout", silent=silent)
+            return res.get("status") == "ok"
+        finally:
+            self._token = None
+
+    def get_me(self, silent: bool = False) -> dict:
+        return self._request("GET", "/me", silent=silent)
+
+    def auth_register(
+        self,
+        user_id: str,
+        password: str,
+        public_key_hex: str,
+        device_id: Optional[str] = None,
+        silent: bool = False,
+    ) -> dict:
+        dev_id = device_id if device_id is not None else self.device_id
         payload = {
             "user_id": user_id,
+            "login": user_id,
             "password": password,
             "public_key": public_key_hex,
         }
+        if dev_id:
+            payload["device_id"] = dev_id
         res = self._request("POST", "/auth/register", json=payload, silent=silent)
         self.user_id = user_id
+        if isinstance(res, dict):
+            token = res.get("token") or res.get("access_token")
+            if token:
+                self._token = token
         return res
 
-    def auth_login(self, user_id: str, password: str, silent: bool = False) -> dict:
-        """
-        Выполняет аутентификацию пользователя по логину и паролю (POST /auth/login).
-        """
+    def auth_login(
+        self,
+        user_id: str,
+        password: str,
+        device_id: Optional[str] = None,
+        silent: bool = False,
+    ) -> dict:
+        dev_id = device_id if device_id is not None else self.device_id
         payload = {
             "user_id": user_id,
+            "login": user_id,
             "password": password,
         }
+        if dev_id:
+            payload["device_id"] = dev_id
         res = self._request("POST", "/auth/login", json=payload, silent=silent)
         self.user_id = user_id
+        if isinstance(res, dict):
+            token = res.get("token") or res.get("access_token")
+            if token:
+                self._token = token
         return res
 
     def get_users(self, silent: bool = False) -> List[dict]:

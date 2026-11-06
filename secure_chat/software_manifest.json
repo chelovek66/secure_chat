@@ -1,0 +1,141 @@
+{
+  "format_version": "1.0-STB",
+  "created_at": "2026-10-30T15:14:27.266864+00:00",
+  "developer_id": "Secure Chat Release Authority (СТБ РБ)",
+  "hash_algorithm": "bash256 (СТБ 34.101.47-2017)",
+  "files_count": 33,
+  "files": {
+    "client/crypto/__init__.py": {
+      "size_bytes": 701,
+      "bash256_hash": "29757c7c26c14dea1f3bb767a2a4ef70629731b0a09fd25db3ac1accfe6250dc"
+    },
+    "client/crypto/bee2.dll": {
+      "size_bytes": 668672,
+      "bash256_hash": "a6e9e19d8df569f6053504b06d25309fde5274ff9bfbcb2b843a9d9a222e7fff"
+    },
+    "client/crypto/bee2_wrapper.py": {
+      "size_bytes": 18387,
+      "bash256_hash": "943c7e348a560d00f0daafd59a63ead8dd8515216657229b87d1f41bc84fc3b5"
+    },
+    "client/crypto/belt.py": {
+      "size_bytes": 5147,
+      "bash256_hash": "5494481c5390fd59d9a6ab6d39084034c2e9bcfe6f6a84cbb7c7ad34ec58e882"
+    },
+    "client/crypto/bign.py": {
+      "size_bytes": 5939,
+      "bash256_hash": "1c545069625ca96be2b6906583064e8a7d364a51ef72efc4ba914bc28949fc08"
+    },
+    "client/crypto/hybrid.py": {
+      "size_bytes": 7060,
+      "bash256_hash": "3b4095e69de562b29e4215558f79f24f5cd3fbff6f454e571c5ab010be46ad5b"
+    },
+    "client/crypto/keystore.py": {
+      "size_bytes": 14613,
+      "bash256_hash": "9ff49813b4af6a9031ad7b5358ea51ec0d892c8b5fb17bbb889f41ded5971c05"
+    },
+    "client/gui/__init__.py": {
+      "size_bytes": 657,
+      "bash256_hash": "91dd8341bd74a99d3563ee634690fab2f4c1de95d89559b87dd9c605421b1c69"
+    },
+    "client/gui/auth_dialog.py": {
+      "size_bytes": 15222,
+      "bash256_hash": "1217b65b12ae901b8ef6d1f5839a8226bbe618c98571d55f8947028f6fd61aff"
+    },
+    "client/gui/build_dialog.py": {
+      "size_bytes": 5217,
+      "bash256_hash": "bcf479780000a20983c87b5a9a8702cc89e6d4bee9e307910e706d294dd580d3"
+    },
+    "client/gui/chat_dialog.py": {
+      "size_bytes": 14873,
+      "bash256_hash": "ea0f886d4249b53de7fef9a3bb93d50971af9d5b7bf2e118516b6d7a436d2824"
+    },
+    "client/gui/config_dialog.py": {
+      "size_bytes": 10914,
+      "bash256_hash": "d0df14da16632948db3f6d69019b10741cba827ef5b5b9315d34ef6b7b51a9f7"
+    },
+    "client/gui/database_dialog.py": {
+      "size_bytes": 23307,
+      "bash256_hash": "7eae0a0c9759a35e22899e3ccf5cccd577e8e8b695496ebba20810d61d0b1464"
+    },
+    "client/gui/integrity_dialog.py": {
+      "size_bytes": 13877,
+      "bash256_hash": "2bab9918e1985255f0866698ebfac3413b24d42a726c8d3dafedeb659bf687d1"
+    },
+    "client/gui/key_dialog.py": {
+      "size_bytes": 20326,
+      "bash256_hash": "5ecd148813b04f7b3fbf99aff4377d142c2c49ff48a108e823404527ce023790"
+    },
+    "client/gui/logs_dialog.py": {
+      "size_bytes": 23248,
+      "bash256_hash": "1f2e162001e42d3702bdc61bdfe2b0836cadef7b0bf6d169f091bf207e2bf39f"
+    },
+    "client/gui/main_window.py": {
+      "size_bytes": 23057,
+      "bash256_hash": "6f9aa5613356809628923e20ed334fe7ae529dfd467d16dbb59a85a303ed67ce"
+    },
+    "client/gui/styles.py": {
+      "size_bytes": 6067,
+      "bash256_hash": "85118df8b8aa55cf993bfa2c9c267db5e74d24bbbeaa62dcfa9e48c2bb4302bd"
+    },
+    "client/gui/users_dialog.py": {
+      "size_bytes": 3764,
+      "bash256_hash": "e4ad880b5d608162ff1a4478ac4a6b697d2541d149a0da130db3de6cce308927"
+    },
+    "client/main.py": {
+      "size_bytes": 2279,
+      "bash256_hash": "f470a6b51e01c5c0189ae13fe4d3b04a93d8405ecfcb2a9c24b74752c19e70e6"
+    },
+    "client/network/__init__.py": {
+      "size_bytes": 267,
+      "bash256_hash": "e29e9005583e5fe1b771e8214bb6bf429791a4786f08bcb91529c6dcaca4c20f"
+    },
+    "client/network/api_client.py": {
+      "size_bytes": 10617,
+      "bash256_hash": "304d3d5b614c05124a6c00a9160e27d0246483ec7ee2ddfd291e6a40be1f7615"
+    },
+    "common/__init__.py": {
+      "size_bytes": 705,
+      "bash256_hash": "7b6358c054b30fbe8d21334d3ec17dd791150cec6380a015943e122cc66addf9"
+    },
+    "common/build_info.py": {
+      "size_bytes": 9262,
+      "bash256_hash": "8553f45c402c883a7599a37335db7042a10355fa7cda573ffa4359353ceb60d8"
+    },
+    "common/config_manager.py": {
+      "size_bytes": 11946,
+      "bash256_hash": "fa8f1d8c94bee9c9bd9314346cfdc74b51838f598ab26dbf1e9d485bb5cba9df"
+    },
+    "common/integrity.py": {
+      "size_bytes": 15007,
+      "bash256_hash": "48e8eaa0e3dc7790b3744ae41fedecc6632550d868504fc7c167493d7ea6cca7"
+    },
+    "common/logger.py": {
+      "size_bytes": 11457,
+      "bash256_hash": "cf0c5a875e32665996651c03ffc2a88911723a483876759d975cc51223290a3e"
+    },
+    "server/__init__.py": {
+      "size_bytes": 55,
+      "bash256_hash": "4923547507babbbe5fc9d74791c2566b4addefc186447b4d33a055b357ab14a6"
+    },
+    "server/app.py": {
+      "size_bytes": 16105,
+      "bash256_hash": "3cad0b252ce056503a53913b99297a653c467874ce18f06a80c3b5083e8a20a8"
+    },
+    "server/config.py": {
+      "size_bytes": 967,
+      "bash256_hash": "fcfd16a038f50b78ab32907a566bf935d648cdcf765f6f7155786dc6774f4215"
+    },
+    "server/database.py": {
+      "size_bytes": 26386,
+      "bash256_hash": "26650f198ffc9546fe79afad2efd102ba89164e666e94148e6dee474ad7c4b08"
+    },
+    "server/models.py": {
+      "size_bytes": 6476,
+      "bash256_hash": "4335b77ae19467d8fc3309505ecbabf21b5c09ca24526f0fa1f637e88f1df178"
+    },
+    "server/storage.py": {
+      "size_bytes": 10969,
+      "bash256_hash": "51ebc826836c326259497428c3e5165b3052c4a42fe3cdd922be4148e0907a72"
+    }
+  }
+}
