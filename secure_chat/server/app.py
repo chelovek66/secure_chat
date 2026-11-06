@@ -43,6 +43,8 @@ from .models import (
 )
 from .storage import storage
 from common.build_info import BuildInfo, get_build_info
+from .update_router import update_router, create_update_jwt
+from .auth_router import auth_router
 
 logging.basicConfig(
     level=settings.log_level,
@@ -80,6 +82,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router)
+app.include_router(update_router)
+
 
 @app.get("/health", response_model=HealthResponse, tags=["Системные"])
 async def health_check():
@@ -100,100 +105,7 @@ async def get_version():
     return get_build_info()
 
 
-@app.post("/register", response_model=StatusResponse, status_code=status.HTTP_200_OK, tags=["Пользователи"])
-async def register_user(req: RegisterRequest, request: Request):
-    """
-    Регистрация или обновление открытого ключа bign пользователя.
-    Синхронизирует данные с оперативной памятью и постоянной SQLite БД.
-    """
-    client_ip = request.client.host if request.client else "127.0.0.1"
-    client_version = request.headers.get("X-Client-Version", "2.1.0")
-    storage.register_user(
-        req.user_id,
-        req.public_key,
-        ip_address=client_ip,
-        client_version=client_version,
-    )
-    logger.info(f"Зарегистрирован открытый ключ пользователя: {req.user_id} (IP: {client_ip})")
-    return StatusResponse(status="ok")
-
-
-@app.post("/auth/register", response_model=AuthResponse, status_code=status.HTTP_200_OK, tags=["Аутентификация"])
-async def auth_register_user(req: UserRegisterRequest, request: Request):
-    """
-    Регистрация пользователя с логином, паролем (хэширование bash256 СТБ 34.101.47-2017)
-    и открытым ключом bign (СТБ 34.101.45-2013).
-    """
-    client_ip = request.client.host if request.client else "127.0.0.1"
-    client_version = request.headers.get("X-Client-Version", "2.1.0")
-
-    # Сохраняем в персистентную БД с хэшированием пароля
-    if storage.db is not None and storage.db.is_enabled():
-        storage.db.register_user_with_password(
-            user_id=req.user_id,
-            public_key=req.public_key,
-            password=req.password,
-            ip_address=client_ip,
-            client_version=client_version,
-        )
-
-    # Сохраняем в кэш ОЗУ
-    storage.register_user(
-        user_id=req.user_id,
-        public_key=req.public_key,
-        ip_address=client_ip,
-        client_version=client_version,
-    )
-    logger.info(f"Аутентификация: пользователь '{req.user_id}' успешно зарегистрирован с паролем bash256.")
-
-    return AuthResponse(
-        success=True,
-        message=f"Пользователь '{req.user_id}' успешно зарегистрирован",
-        user_id=req.user_id,
-        public_key=req.public_key,
-    )
-
-
-@app.post("/auth/login", response_model=AuthResponse, status_code=status.HTTP_200_OK, tags=["Аутентификация"])
-async def auth_login_user(req: UserLoginRequest, request: Request):
-    """
-    Проверка учетных данных пользователя (логин и пароль по хэшу bash256).
-    """
-    if storage.db is not None and storage.db.is_enabled():
-        success, pubkey, msg = storage.db.verify_user_credentials(req.user_id, req.password)
-        if not success:
-            return AuthResponse(
-                success=False,
-                message=msg,
-                user_id=req.user_id,
-                public_key=None,
-            )
-
-        if pubkey:
-            storage.register_user(req.user_id, pubkey)
-
-        return AuthResponse(
-            success=True,
-            message=msg,
-            user_id=req.user_id,
-            public_key=pubkey,
-        )
-
-    # Резервный режим памяти
-    mem_user = storage.get_user(req.user_id)
-    if mem_user:
-        return AuthResponse(
-            success=True,
-            message="Вход выполнен (режим ОЗУ)",
-            user_id=req.user_id,
-            public_key=mem_user.public_key,
-        )
-    return AuthResponse(
-        success=False,
-        message=f"Пользователь '{req.user_id}' не найден",
-        user_id=req.user_id,
-        public_key=None,
-    )
+# Маршруты /register, /login, /logout, /me вынесены в auth_router (ПЗ-3)
 
 
 @app.get("/users", response_model=List[UserResponse], tags=["Пользователи"])

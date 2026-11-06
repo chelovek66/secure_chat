@@ -19,10 +19,12 @@ from PyQt5.QtWidgets import (
     QFrame,
 )
 from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtWidgets import QProgressBar
 
 from ..network.api_client import ApiClient, ApiClientError, ApiConnectionError
 from ..crypto.bign import BignCrypto, BignKeyPair
 from ..crypto.keystore import KeyStore, KeyStoreError
+from common.fingerprint import get_device_fingerprint, get_device_details
 
 
 class AuthDialog(QDialog):
@@ -38,6 +40,14 @@ class AuthDialog(QDialog):
 
         self.authenticated_user_id: Optional[str] = None
         self.authenticated_keypair: Optional[BignKeyPair] = None
+
+        # Получение цифрового отпечатка устройства (Device Fingerprint)
+        try:
+            self.device_id = getattr(self.api, "device_id", None) or get_device_fingerprint()
+            self.device_details = get_device_details()
+        except Exception:
+            self.device_id = "unknown_device_id"
+            self.device_details = {}
 
         self.setWindowTitle("Аутентификация — Secure Chat")
         self.resize(620, 640)
@@ -79,6 +89,29 @@ class AuthDialog(QDialog):
         self.start_srv_btn.clicked.connect(self.start_local_server)
         server_box.addWidget(self.start_srv_btn)
         layout.addLayout(server_box)
+
+        # Отображение Device Fingerprint
+        dev_frame = QFrame(self)
+        dev_frame.setStyleSheet("background-color: #1E293B; border-radius: 6px; padding: 6px 10px; margin: 2px 0;")
+        dev_layout = QHBoxLayout(dev_frame)
+        dev_layout.setContentsMargins(8, 4, 8, 4)
+        dev_icon = QLabel("💻 Отпечаток устройства (Device ID):")
+        dev_icon.setStyleSheet("font-size: 11px; color: #94A3B8; font-weight: bold;")
+        dev_layout.addWidget(dev_icon)
+
+        short_dev = f"{self.device_id[:16]}...{self.device_id[-8:]}" if len(self.device_id) > 24 else self.device_id
+        self.dev_label = QLabel(short_dev)
+        self.dev_label.setStyleSheet("font-family: monospace; font-size: 11px; color: #38BDF8; font-weight: bold;")
+        tooltip_txt = (
+            f"Полный Device Fingerprint (SHA-256):\n{self.device_id}\n\n"
+            f"Узел: {self.device_details.get('hostname', 'N/A')}\n"
+            f"ОС: {self.device_details.get('platform', 'N/A')}\n"
+            f"MAC: {self.device_details.get('mac', 'N/A')}"
+        )
+        self.dev_label.setToolTip(tooltip_txt)
+        dev_layout.addWidget(self.dev_label)
+        dev_layout.addStretch()
+        layout.addWidget(dev_frame)
 
         # Вкладки: 1) Вход; 2) Регистрация
         self.tabs = QTabWidget(self)
@@ -129,8 +162,27 @@ class AuthDialog(QDialog):
         self.reg_pass_input = QLineEdit(self)
         self.reg_pass_input.setMinimumHeight(38)
         self.reg_pass_input.setEchoMode(QLineEdit.Password)
-        self.reg_pass_input.setPlaceholderText("Надежный пароль")
+        self.reg_pass_input.setPlaceholderText("Надежный пароль (минимум 8 символов, цифры, регистр)")
+        self.reg_pass_input.textChanged.connect(self._on_password_changed)
         v_reg.addWidget(self.reg_pass_input)
+
+        # Индикатор сложности пароля (Password Strength Meter)
+        self.strength_lbl = QLabel("Сложность пароля: —")
+        self.strength_lbl.setStyleSheet("font-size: 11px; font-weight: bold; color: #94A3B8;")
+        v_reg.addWidget(self.strength_lbl)
+
+        self.strength_bar = QProgressBar(self)
+        self.strength_bar.setRange(0, 100)
+        self.strength_bar.setValue(0)
+        self.strength_bar.setFixedHeight(8)
+        self.strength_bar.setTextVisible(False)
+        self.strength_bar.setStyleSheet("QProgressBar { background-color: #334155; border-radius: 4px; }")
+        v_reg.addWidget(self.strength_bar)
+
+        self.strength_hint = QLabel("")
+        self.strength_hint.setStyleSheet("font-size: 10px; color: #94A3B8;")
+        self.strength_hint.setWordWrap(True)
+        v_reg.addWidget(self.strength_hint)
 
         v_reg.addWidget(QLabel("Подтверждение пароля:"))
         self.reg_pass2_input = QLineEdit(self)
@@ -188,6 +240,47 @@ class AuthDialog(QDialog):
         except Exception as exc:
             QMessageBox.critical(self, "Ошибка запуска", f"Не удалось запустить сервер: {exc}")
 
+    def _evaluate_password_strength(self, pwd: str) -> tuple[int, str, str, str]:
+        """
+        Оценивает сложность пароля.
+        Возвращает (процент, статус, цвет_hex, подсказка).
+        """
+        if not pwd:
+            return 0, "—", "#94A3B8", ""
+
+        length = len(pwd)
+        has_upper = any(c.isupper() for c in pwd)
+        has_lower = any(c.islower() for c in pwd)
+        has_digit = any(c.isdigit() for c in pwd)
+        has_special = any(not c.isalnum() for c in pwd)
+
+        score = 0
+        if length >= 8:
+            score += 1
+        if length >= 12:
+            score += 1
+        if has_upper and has_lower:
+            score += 1
+        if has_digit:
+            score += 1
+        if has_special:
+            score += 1
+
+        if length < 6 or score <= 2:
+            return 30, "Слабый", "#EF4444", "Требуется не менее 8 символов, разные регистры и цифры"
+        elif score in (3, 4):
+            return 70, "Средний", "#F59E0B", "Хороший пароль. Добавьте спецсимволы (!@#$) для надежности"
+        else:
+            return 100, "Надежный", "#10B981", "Отличный криптостойкий пароль!"
+
+    def _on_password_changed(self, text: str):
+        pct, status_text, color, hint = self._evaluate_password_strength(text)
+        self.strength_lbl.setText(f"Сложность пароля: {status_text}")
+        self.strength_lbl.setStyleSheet(f"font-size: 11px; font-weight: bold; color: {color};")
+        self.strength_bar.setValue(pct)
+        self.strength_bar.setStyleSheet(f"QProgressBar {{ background-color: #334155; border-radius: 4px; }} QProgressBar::chunk {{ background-color: {color}; border-radius: 4px; }}")
+        self.strength_hint.setText(hint)
+
     def handle_login(self):
         username = self.login_user_input.text().strip()
         password = self.login_pass_input.text()
@@ -206,9 +299,10 @@ class AuthDialog(QDialog):
             return
 
         try:
-            res = self.api.auth_login(username, password)
-            if not res.get("success"):
-                QMessageBox.critical(self, "Ошибка входа", res.get("message", "Неверный логин или пароль!"))
+            res = self.api.login(username, password, device_id=self.device_id)
+            if not res or ("token" not in res and not res.get("success")):
+                msg = res.get("message") or res.get("detail", "Неверный логин или пароль!")
+                QMessageBox.critical(self, "Ошибка входа", msg)
                 return
 
             # Проверяем или загружаем ключи пользователя
@@ -253,15 +347,18 @@ class AuthDialog(QDialog):
             keypair = BignCrypto.generate_keypair()
             pub_file, priv_file = KeyStore.save_keys(self.keys_dir, keypair, username=username)
 
-            # 2. Регистрируем пользователя на сервере с хэшированием пароля
-            res = self.api.auth_register(
+            # 2. Регистрируем пользователя на сервере с хэшированием пароля и привязкой устройства
+            res = self.api.register(
                 user_id=username,
                 password=password,
                 public_key_hex=keypair.public_hex,
+                device_id=self.device_id,
             )
 
-            if not res.get("success"):
-                QMessageBox.critical(self, "Ошибка регистрации", res.get("message", "Сбой регистрации пользователя!"))
+            is_ok = (isinstance(res, dict) and (res.get("success") or res.get("status") == "ok")) or res is True
+            if not is_ok:
+                err_msg = res.get("message") if isinstance(res, dict) else "Сбой регистрации пользователя!"
+                QMessageBox.critical(self, "Ошибка регистрации", err_msg)
                 return
 
             QMessageBox.information(
