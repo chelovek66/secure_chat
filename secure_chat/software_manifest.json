@@ -1,6 +1,6 @@
 {
   "format_version": "1.0-STB",
-  "created_at": "2026-11-19T17:16:47.425656+00:00",
+  "created_at": "2026-11-19T17:19:12.325957+00:00",
   "developer_id": "Secure Chat Release Authority (СТБ РБ)",
   "hash_algorithm": "bash256 (СТБ 34.101.47-2017)",
   "files_count": 39,
@@ -54,8 +54,8 @@
       "bash256_hash": "d0df14da16632948db3f6d69019b10741cba827ef5b5b9315d34ef6b7b51a9f7"
     },
     "client/gui/database_dialog.py": {
-      "size_bytes": 23264,
-      "bash256_hash": "ff01ec4cc9ae78c578e7c1772b7f294b96198b6568f40f98e925ccd7211a4352"
+      "size_bytes": 23741,
+      "bash256_hash": "f2b4f1055a44d774c254bd021c62dbd56a4023c9b9cea41bce7dbcc29159ecc1"
     },
     "client/gui/integrity_dialog.py": {
       "size_bytes": 14154,
@@ -66,8 +66,8 @@
       "bash256_hash": "5ecd148813b04f7b3fbf99aff4377d142c2c49ff48a108e823404527ce023790"
     },
     "client/gui/logs_dialog.py": {
-      "size_bytes": 23259,
-      "bash256_hash": "5eeff6c5e532b9865af48341cc794311dcc074109ca8d2b874222c79011c8945"
+      "size_bytes": 23776,
+      "bash256_hash": "29c40052ca3f9dfad49ed0ad612cdbdb087b8a44a99ecf36e882ad79e67c8ab1"
     },
     "client/gui/main_window.py": {
       "size_bytes": 23539,
