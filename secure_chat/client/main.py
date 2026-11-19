@@ -76,7 +76,7 @@ def run_client():
 
     app = QApplication(sys.argv)
     app.setApplicationName("SecureChat-Client")
-    app.setApplicationDisplayName("Secure Chat (СТБ РБ / Bee2)")
+    app.setApplicationDisplayName("Secure Chat")
     app.setStyleSheet(APP_STYLESHEET)
 
     # Аутентификация и регистрация пользователей при запуске (СТБ 34.101.47 bash256)

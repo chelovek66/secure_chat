@@ -158,11 +158,12 @@ class DatabaseManager:
                         ip_address TEXT,
                         password_hash TEXT,
                         password_salt TEXT,
-                        device_id TEXT
+                        device_id TEXT,
+                        failed_attempts INTEGER DEFAULT 0
                     );
                 """)
 
-                # Миграция: добавляем колонки password_hash и password_salt если они отсутствуют
+                # Миграция: добавляем колонки password_hash, password_salt, device_id, failed_attempts если они отсутствуют
                 try:
                     cols = [c[1] for c in self._conn.execute("PRAGMA table_info(users)").fetchall()]
                     if "password_hash" not in cols:
@@ -171,6 +172,8 @@ class DatabaseManager:
                         self._conn.execute("ALTER TABLE users ADD COLUMN password_salt TEXT;")
                     if "device_id" not in cols:
                         self._conn.execute("ALTER TABLE users ADD COLUMN device_id TEXT;")
+                    if "failed_attempts" not in cols:
+                        self._conn.execute("ALTER TABLE users ADD COLUMN failed_attempts INTEGER DEFAULT 0;")
                 except Exception as m_err:
                     logger.debug(f"Миграция колонок users: {m_err}")
 
@@ -330,12 +333,16 @@ class DatabaseManager:
                 return False, None, "База данных сервера недоступна"
 
             row = self._conn.execute(
-                "SELECT user_id, public_key, status, password_hash, password_salt, device_id FROM users WHERE user_id = ?",
+                "SELECT user_id, public_key, status, password_hash, password_salt, device_id, failed_attempts FROM users WHERE user_id = ?",
                 (user_id,),
             ).fetchone()
 
             if not row:
                 return False, None, f"Пользователь '{user_id}' не найден. Пожалуйста, пройдите регистрацию."
+
+            failed_attempts = row["failed_attempts"] or 0
+            if failed_attempts >= 5 or row["status"] in ("blocked", "locked"):
+                return False, None, "Превышено максимальное число попыток ввода пароля (5). Ввод пароля заблокирован!"
 
             if row["status"] != "active":
                 return False, None, f"Учетная запись '{user_id}' заблокирована."
@@ -349,19 +356,36 @@ class DatabaseManager:
                 new_hash, new_salt = hash_password_pbkdf2(password)
                 with self._conn:
                     self._conn.execute(
-                        "UPDATE users SET password_hash = ?, password_salt = ?, last_seen_at = ?, device_id = COALESCE(device_id, ?) WHERE user_id = ?",
+                        "UPDATE users SET password_hash = ?, password_salt = ?, last_seen_at = ?, device_id = COALESCE(device_id, ?), failed_attempts = 0 WHERE user_id = ?",
                         (new_hash, new_salt, now, device_id, user_id),
                     )
                 return True, row["public_key"], "Вход выполнен успешно"
 
             if not verify_user_password(password, pwd_salt, pwd_hash):
+                new_attempts = failed_attempts + 1
                 now = datetime.now(timezone.utc).isoformat()
                 with self._conn:
-                    self._conn.execute(
-                        "INSERT INTO audit_log (timestamp, event_type, user_id, details) VALUES (?, ?, ?, ?)",
-                        (now, "USER_LOGIN_FAILED", user_id, "Ошибка аутентификации: неверный пароль"),
-                    )
-                return False, None, "Неверный пароль! Проверьте правильность ввода."
+                    if new_attempts >= 5:
+                        self._conn.execute(
+                            "UPDATE users SET failed_attempts = ?, status = 'locked' WHERE user_id = ?",
+                            (new_attempts, user_id),
+                        )
+                        self._conn.execute(
+                            "INSERT INTO audit_log (timestamp, event_type, user_id, details) VALUES (?, ?, ?, ?)",
+                            (now, "ACCOUNT_LOCKED", user_id, "Превышен лимит неудачных попыток входа (5). Ввод пароля заблокирован."),
+                        )
+                        return False, None, "Превышено максимальное число попыток ввода пароля (5). Ввод пароля заблокирован!"
+                    else:
+                        self._conn.execute(
+                            "UPDATE users SET failed_attempts = ? WHERE user_id = ?",
+                            (new_attempts, user_id),
+                        )
+                        self._conn.execute(
+                            "INSERT INTO audit_log (timestamp, event_type, user_id, details) VALUES (?, ?, ?, ?)",
+                            (now, "USER_LOGIN_FAILED", user_id, f"Ошибка аутентификации: неверный пароль (попытка {new_attempts} из 5)"),
+                        )
+                        remaining = 5 - new_attempts
+                        return False, None, f"Неверный пароль! Осталось попыток: {remaining}"
 
             # Проверка Device Fingerprint
             stored_device_id = row["device_id"]
@@ -390,7 +414,7 @@ class DatabaseManager:
 
             now = datetime.now(timezone.utc).isoformat()
             with self._conn:
-                self._conn.execute("UPDATE users SET last_seen_at = ? WHERE user_id = ?", (now, user_id))
+                self._conn.execute("UPDATE users SET last_seen_at = ?, failed_attempts = 0 WHERE user_id = ?", (now, user_id))
                 self._conn.execute(
                     "INSERT INTO audit_log (timestamp, event_type, user_id, details) VALUES (?, ?, ?, ?)",
                     (now, "USER_LOGIN_SUCCESS", user_id, f"Успешная проверка учетных данных (устройство: {device_id or stored_device_id})"),
@@ -598,6 +622,29 @@ class DatabaseManager:
                     return cursor.rowcount > 0
             except Exception as e:
                 logger.error(f"Ошибка обновления last_seen для '{user_id}': {e}")
+                return False
+
+    def reset_failed_attempts(self, user_id: str) -> bool:
+        """Сбрасывает счетчик неудачных попыток ввода пароля и разблокирует пользователя."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            if self._conn is None:
+                return False
+            try:
+                with self._conn:
+                    cursor = self._conn.execute(
+                        "UPDATE users SET failed_attempts = 0, status = 'active' WHERE user_id = ?",
+                        (user_id,),
+                    )
+                    if cursor.rowcount > 0:
+                        self._conn.execute(
+                            "INSERT INTO audit_log (timestamp, event_type, user_id, details) VALUES (?, ?, ?, ?)",
+                            (now, "ACCOUNT_UNLOCKED", user_id, "Сброс счетчика попыток и разблокировка учетной записи"),
+                        )
+                        return True
+                    return False
+            except Exception as e:
+                logger.error(f"Ошибка сброса failed_attempts для '{user_id}': {e}")
                 return False
 
     def update_user_status(self, user_id: str, status: str) -> bool:

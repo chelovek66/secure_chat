@@ -188,6 +188,11 @@ async def login(req: UserLoginRequest, request: Request):
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Вход с незнакомого устройства",
             )
+        if "заблокирован" in msg.lower():
+            raise HTTPException(
+                status_code=status.HTTP_423_LOCKED,
+                detail=msg,
+            )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=msg or "Неверный логин или пароль",

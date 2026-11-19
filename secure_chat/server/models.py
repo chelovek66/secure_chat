@@ -18,7 +18,21 @@ class RegisterRequest(BaseModel):
         uid = self.user_id or self.login
         if not uid or not uid.strip():
             raise ValueError("Идентификатор пользователя не может состоять только из пробелов")
-        return uid.strip()
+        clean = uid.strip()
+        if len(clean) < 2:
+            raise ValueError("Логин должен содержать не менее 2 символов")
+        return clean
+
+    @field_validator("user_id", "login")
+    @classmethod
+    def validate_username_length(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            clean = v.strip()
+            if not clean:
+                raise ValueError("Идентификатор пользователя не может быть пустым")
+            if len(clean) < 2:
+                raise ValueError("Логин должен содержать не менее 2 символов")
+        return v
 
     @field_validator("public_key")
     @classmethod
@@ -142,7 +156,21 @@ class UserRegisterRequest(BaseModel):
         uid = self.user_id or self.login
         if not uid or not uid.strip():
             raise ValueError("Необходимо указать login или user_id")
-        return uid.strip()
+        clean = uid.strip()
+        if len(clean) < 2:
+            raise ValueError("Логин должен содержать не менее 2 символов")
+        return clean
+
+    @field_validator("user_id", "login")
+    @classmethod
+    def validate_username_length(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            clean = v.strip()
+            if not clean:
+                raise ValueError("Идентификатор пользователя не может быть пустым")
+            if len(clean) < 2:
+                raise ValueError("Логин должен содержать не менее 2 символов")
+        return v
 
     @field_validator("password")
     @classmethod
@@ -163,7 +191,21 @@ class UserLoginRequest(BaseModel):
         uid = self.user_id or self.login
         if not uid or not uid.strip():
             raise ValueError("Необходимо указать login или user_id")
-        return uid.strip()
+        clean = uid.strip()
+        if len(clean) < 2:
+            raise ValueError("Логин должен содержать не менее 2 символов")
+        return clean
+
+    @field_validator("user_id", "login")
+    @classmethod
+    def validate_username_length(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            clean = v.strip()
+            if not clean:
+                raise ValueError("Идентификатор пользователя не может быть пустым")
+            if len(clean) < 2:
+                raise ValueError("Логин должен содержать не менее 2 символов")
+        return v
 
 
 class AuthResponse(BaseModel):

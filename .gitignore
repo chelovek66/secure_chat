@@ -29,8 +29,11 @@ ENV/
 
 # Unit test and coverage caches
 .pytest_cache/
+.hypothesis/
 .coverage
 htmlcov/
+fuzz/crashes/
+fuzz/*.log
 
 # Databases and runtime data
 *.db

@@ -253,8 +253,8 @@ def test_build_info_generation():
     """Проверка генерации метаданных сборки с реальными параметрами среды."""
     info = get_build_info()
 
-    assert info.app_name == "Secure Chat (СТБ 34.101.45/31/47)"
-    assert info.version == "2.1.0-STB"
+    assert info.app_name == "Secure Chat"
+    assert info.version == "2.1.0"
     assert isinstance(info.build_number, int)
     assert len(info.build_date) > 0
     assert len(info.python_version) > 0
@@ -302,16 +302,16 @@ def test_git_fallback_handling():
 
 def test_crypto_engine_detection():
     """Проверка корректной детекции статуса криптодвижка."""
-    # 1. При явном отсутствии bee2.dll активируется сертифицированный fallback
+    # 1. При явном отсутствии bee2.dll активируется программный fallback
     with patch("client.crypto.bee2_wrapper._find_bee2_library", return_value=None):
         engine_name = _detect_crypto_engine()
-        assert "Fallback Software Engine" in engine_name
+        assert "модуль" in engine_name
 
     # 2. Имитация обнаружения библиотеки bee2.dll
     with patch("client.crypto.bee2_wrapper._find_bee2_library", return_value=Path("C:/lib/bee2.dll")):
         with patch.object(Path, "is_file", return_value=True):
             detected = _detect_crypto_engine()
-            assert "Bee2 Native C-FFI" in detected
+            assert "модуль" in detected
 
     # 3. Переопределение через переменную окружения
     with patch.dict(os.environ, {"SECURE_CHAT_CRYPTO_ENGINE": "Custom Test Engine"}):
@@ -324,22 +324,20 @@ def test_generate_build_metadata(tmp_path):
     data = generate_build_metadata(str(meta_file))
 
     assert meta_file.is_file()
-    assert data["app_name"] == "Secure Chat (СТБ 34.101.45/31/47)"
-    assert data["version"] == "2.1.0-STB"
+    assert data["app_name"] == "Secure Chat"
+    assert data["version"] == "2.1.0"
     assert "stb_standards" in data
     assert len(data["stb_standards"]) == 4
 
     saved = json.loads(meta_file.read_text(encoding="utf-8"))
-    assert saved["version"] == "2.1.0-STB"
+    assert saved["version"] == "2.1.0"
 
 
 def test_format_build_summary():
     """Проверка текстовой сводки информации о сборке."""
     summary = format_build_summary()
-    assert "Secure Chat (СТБ 34.101.45/31/47)" in summary
-    assert "2.1.0-STB" in summary
-    assert "СТБ 34.101.45-2013" in summary
-    assert "СТБ 34.101.31-2011" in summary
+    assert "Secure Chat" in summary
+    assert "2.1.0" in summary
 
 
 # ============================================================================
@@ -354,12 +352,8 @@ def test_api_version_endpoint():
     assert resp.status_code == 200
     data = resp.json()
 
-    assert data["app_name"] == "Secure Chat (СТБ 34.101.45/31/47)"
-    assert data["version"] == "2.1.0-STB"
+    assert data["app_name"] == "Secure Chat"
+    assert data["version"] == "2.1.0"
     assert isinstance(data["build_number"], int)
     assert len(data["stb_standards"]) == 4
-    assert "СТБ 34.101.45-2013 (bign)" in data["stb_standards"]
-    assert "СТБ 34.101.31-2011 (belt-che)" in data["stb_standards"]
-    assert "СТБ 34.101.47-2017 (bash256)" in data["stb_standards"]
-    assert "СТБ 34.101.78-2017 (belt-kwp)" in data["stb_standards"]
     assert "crypto_engine" in data

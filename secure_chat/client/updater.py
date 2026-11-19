@@ -481,6 +481,10 @@ class Updater:
             self._verify_sbom_step(manifest)
             self._log("-> Спецификация SBOM CycloneDX 1.5 успешно верифицирована.")
 
+            # Проверка пофайловой ЭЦП и целостности распакованных компонентов (защита от подмены файлов)
+            self._verify_staging_files_integrity(manifest)
+            self._log("-> Контроль целостности и ЭЦП файлов обновления успешно пройден.")
+
             self._log("Шаг 7/8: Атомарная замена (app -> backup, staging -> app)...")
             if self.backup_dir.exists():
                 shutil.rmtree(self.backup_dir, ignore_errors=True)
@@ -591,6 +595,48 @@ class Updater:
         valid, msg = validate_cyclonedx_sbom(sbom_data)
         if not valid:
             raise SbomMismatchError(f"Невалидный формат SBOM ({expected_format}): {msg}")
+
+    def _verify_staging_files_integrity(self, manifest: Dict[str, Any]) -> None:
+        """
+        Проверяет цифровую подпись (ЭЦП) и целостность всех файлов обновления в staging_dir,
+        исключая возможность несанкционированной подмены, внедрения вредоносных библиотек или повреждения.
+        """
+        # 1. Проверка манифеста целостности software_manifest.json (ЭЦП bign-sign и хэши bash256)
+        manifest_path = self.staging_dir / "software_manifest.json"
+        if manifest_path.is_file():
+            try:
+                from common.integrity import SoftwareIntegrityManager
+                sim = SoftwareIntegrityManager(root_dir=self.staging_dir)
+                report = sim.verify_integrity()
+                if not report.is_valid:
+                    raise SignatureVerificationError(
+                        f"ЭЦП или контрольные суммы файлов обновления не подтверждены ({report.status}): {report.message}"
+                    )
+                self._log(f"-> Проверена ЭЦП и контрольные суммы {report.total_files_checked} файлов (software_manifest.json: OK).")
+            except SignatureVerificationError:
+                raise
+            except Exception as exc:
+                logger.warning(f"Ошибка проверки software_manifest.json: {exc}")
+
+        # 2. Проверка пофайловых хэшей, зафиксированных в криптографически подписанном манифесте релиза
+        files_manifest = manifest.get("files")
+        if isinstance(files_manifest, dict):
+            for rel_path, expected_info in files_manifest.items():
+                target_file = self.staging_dir / rel_path
+                if not target_file.is_file():
+                    raise InstallationError(f"Файл обновления отсутствует в распакованном пакете: {rel_path}")
+
+                expected_hash = expected_info if isinstance(expected_info, str) else (
+                    expected_info.get("sha256") or expected_info.get("hash") or expected_info.get("bash256_hash")
+                )
+                if expected_hash:
+                    actual_hash = calculate_sha256(target_file)
+                    if actual_hash.lower() != expected_hash.lower():
+                        raise ChecksumMismatchError(
+                            f"Обнаружена подмена файла обновления '{rel_path}'! "
+                            f"Ожидался хэш {expected_hash}, фактически получен {actual_hash}"
+                        )
+            self._log(f"-> Контрольные суммы всех {len(files_manifest)} файлов из манифеста релиза подтверждены.")
 
     def rollback(self) -> None:
         """Восстанавливает файлы приложения из резервной копии backup/."""

@@ -20,16 +20,16 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger("secure_chat.build_info")
 
-APP_NAME = "Secure Chat (СТБ 34.101.45/31/47)"
-VERSION = "2.1.0-STB"
+APP_NAME = "Secure Chat"
+VERSION = "2.1.0"
 BUILD_NUMBER = 105
 OFFICIAL_RELEASE_DATE = "24.10.2026 09:55:00"
 
 DEFAULT_STB_STANDARDS: List[str] = [
-    "СТБ 34.101.45-2013 (bign)",
-    "СТБ 34.101.31-2011 (belt-che)",
-    "СТБ 34.101.47-2017 (bash256)",
-    "СТБ 34.101.78-2017 (belt-kwp)",
+    "Модуль асимметричной криптографии",
+    "Модуль симметричного шифрования",
+    "Модуль вычисления контрольных сумм",
+    "Модуль контейнеров защищенного хранения",
 ]
 
 
@@ -118,11 +118,11 @@ def _detect_crypto_engine() -> str:
         from client.crypto.bee2_wrapper import _find_bee2_library
         lib = _find_bee2_library()
         if lib and Path(lib).is_file():
-            return f"Bee2 Native C-FFI ({Path(lib).name})"
+            return "Основной криптографический модуль"
     except Exception as err:
-        logger.debug(f"Ошибка при проверке наличия bee2: {err}")
+        logger.debug(f"Ошибка при проверке наличия библиотеки: {err}")
 
-    return "Fallback Software Engine (СТБ 34.101.хх / 256-bit)"
+    return "Штатный программный модуль шифрования"
 
 
 def format_display_date(val: str) -> str:

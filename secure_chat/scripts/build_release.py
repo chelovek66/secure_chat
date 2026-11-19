@@ -399,15 +399,27 @@ def create_and_sign_manifest(
     pkg_sha256: str,
     sbom_sha256: str,
     priv_key: ed25519.Ed25519PrivateKey,
+    zip_path: Optional[Path] = None,
 ) -> Tuple[Path, Path, Dict[str, Any]]:
     """
     Формирует и подписывает manifest.json и сохраняет manifest.sig
-    в соответствии со спецификацией ПЗ-4.
+    в соответствии со спецификацией ПЗ-4. Включает пофайловую ЭЦП всех файлов обновления.
     """
     manifest_path = release_dir / "manifest.json"
     manifest_sig_path = release_dir / "manifest.sig"
 
     release_date_iso = datetime.now(timezone.utc).isoformat()
+
+    files_map: Dict[str, Any] = {}
+    if zip_path and zip_path.is_file():
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            for zi in zf.infolist():
+                if not zi.is_dir():
+                    data = zf.read(zi.filename)
+                    files_map[zi.filename] = {
+                        "sha256": hashlib.sha256(data).hexdigest(),
+                        "size_bytes": zi.file_size,
+                    }
 
     manifest_payload = {
         "version": VERSION,
@@ -418,6 +430,8 @@ def create_and_sign_manifest(
         "package_url": f"/updates/download/{VERSION}",
         "package_size": pkg_size,
         "package_sha256": pkg_sha256,
+        "files_count": len(files_map),
+        "files": files_map,
         "signature": "",
         "sbom": {
             "format": "CycloneDX-1.5",
@@ -614,13 +628,14 @@ def main():
     zip_path = release_dir / ZIP_PACKAGE_NAME
     _, pkg_size, pkg_sha256 = create_release_zip(dist_dir, zip_path, sbom_path)
 
-    # Шаг 7: Формирование и подписание манифеста
+    # Шаг 7: Формирование и подписание манифеста (включая цифровую подпись каждого файла)
     manifest_path, manifest_sig_path, manifest_data = create_and_sign_manifest(
         release_dir=release_dir,
         pkg_size=pkg_size,
         pkg_sha256=pkg_sha256,
         sbom_sha256=sbom_sha256,
         priv_key=priv_key,
+        zip_path=zip_path,
     )
 
     # Шаг 8: Верификация целостности и подписей
