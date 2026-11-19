@@ -8,7 +8,7 @@ import json
 import logging
 import threading
 from pathlib import Path
-from typing import Callable, List, Optional, Union
+from typing import Callable, ClassVar, List, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator, ValidationError
 
@@ -49,18 +49,23 @@ class ClientConfig(BaseModel):
             raise ValueError("server_url должен начинаться с http:// или https://")
         return clean.rstrip("/")
 
+    MIN_POLL_INTERVAL: ClassVar[float] = 0.2
+    MAX_POLL_INTERVAL: ClassVar[float] = 60.0
+    MIN_REQUEST_TIMEOUT: ClassVar[float] = 1.0
+    MAX_REQUEST_TIMEOUT: ClassVar[float] = 120.0
+
     @field_validator("poll_interval_sec")
     @classmethod
     def validate_poll_interval(cls, v: float) -> float:
-        if v <= 0:
-            raise ValueError("poll_interval_sec должен быть положительным числом (> 0)")
+        if v < cls.MIN_POLL_INTERVAL or v > cls.MAX_POLL_INTERVAL:
+            raise ValueError(f"poll_interval_sec должен быть в диапазоне [{cls.MIN_POLL_INTERVAL}, {cls.MAX_POLL_INTERVAL}] сек (передано: {v})")
         return v
 
     @field_validator("request_timeout_sec")
     @classmethod
     def validate_request_timeout(cls, v: float) -> float:
-        if v <= 0:
-            raise ValueError("request_timeout_sec должен быть положительным числом (> 0)")
+        if v < cls.MIN_REQUEST_TIMEOUT or v > cls.MAX_REQUEST_TIMEOUT:
+            raise ValueError(f"request_timeout_sec должен быть в диапазоне [{cls.MIN_REQUEST_TIMEOUT}, {cls.MAX_REQUEST_TIMEOUT}] сек (передано: {v})")
         return v
 
     @field_validator("log_level")

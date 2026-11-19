@@ -40,6 +40,7 @@ class AuthDialog(QDialog):
 
         self.authenticated_user_id: Optional[str] = None
         self.authenticated_keypair: Optional[BignKeyPair] = None
+        self.failed_attempts: int = 0
 
         # Получение цифрового отпечатка устройства (Device Fingerprint)
         try:
@@ -282,6 +283,16 @@ class AuthDialog(QDialog):
         self.strength_hint.setText(hint)
 
     def handle_login(self):
+        if self.failed_attempts >= 5:
+            QMessageBox.critical(
+                self,
+                "Блокировка",
+                "Превышено максимальное число попыток ввода пароля (5). Ввод пароля заблокирован!"
+            )
+            self.login_pass_input.setEnabled(False)
+            self.login_btn.setEnabled(False)
+            return
+
         username = self.login_user_input.text().strip()
         password = self.login_pass_input.text()
 
@@ -301,10 +312,25 @@ class AuthDialog(QDialog):
         try:
             res = self.api.login(username, password, device_id=self.device_id)
             if not res or ("token" not in res and not res.get("success")):
+                self.failed_attempts += 1
                 msg = res.get("message") or res.get("detail", "Неверный логин или пароль!")
-                QMessageBox.critical(self, "Ошибка входа", msg)
+                if self.failed_attempts >= 5 or "заблокирован" in msg.lower():
+                    self.failed_attempts = 5
+                    self.login_pass_input.clear()
+                    self.login_pass_input.setEnabled(False)
+                    self.login_pass_input.setPlaceholderText("Ввод пароля заблокирован (5 неудачных попыток)")
+                    self.login_btn.setEnabled(False)
+                    QMessageBox.critical(
+                        self,
+                        "Блокировка",
+                        "Превышено максимальное число попыток ввода пароля (5). Ввод пароля заблокирован!"
+                    )
+                else:
+                    remaining = 5 - self.failed_attempts
+                    QMessageBox.critical(self, "Ошибка входа", f"{msg}\nОсталось попыток: {remaining}")
                 return
 
+            self.failed_attempts = 0
             # Проверяем или загружаем ключи пользователя
             keypair = self._load_or_ensure_user_keys(username)
             if not keypair:
@@ -315,7 +341,26 @@ class AuthDialog(QDialog):
             self.accept()
 
         except ApiClientError as exc:
-            QMessageBox.critical(self, "Ошибка аутентификации", f"Сбой проверки учетных данных: {exc}")
+            self.failed_attempts += 1
+            exc_str = str(exc)
+            if self.failed_attempts >= 5 or "заблокирован" in exc_str.lower():
+                self.failed_attempts = 5
+                self.login_pass_input.clear()
+                self.login_pass_input.setEnabled(False)
+                self.login_pass_input.setPlaceholderText("Ввод пароля заблокирован (5 неудачных попыток)")
+                self.login_btn.setEnabled(False)
+                QMessageBox.critical(
+                    self,
+                    "Блокировка",
+                    "Превышено максимальное число попыток ввода пароля (5). Ввод пароля заблокирован!"
+                )
+            else:
+                remaining = 5 - self.failed_attempts
+                QMessageBox.critical(
+                    self,
+                    "Ошибка аутентификации",
+                    f"Сбой проверки учетных данных: {exc}\nОсталось попыток: {remaining}"
+                )
 
     def handle_register(self):
         username = self.reg_user_input.text().strip()

@@ -109,8 +109,14 @@ class BuildDialog(QDialog):
         layout.addLayout(btn_h)
 
     def on_check_update_clicked(self):
-        """Заглушка кнопки обновления версии."""
-        pass
+        """Открывает диалог проверки и безопасного обновления ПО с верификацией ЭЦП."""
+        try:
+            from .update_dialog import UpdateDialog
+            api_client = getattr(self.parent(), "api", None)
+            dlg = UpdateDialog(self, api_client=api_client)
+            dlg.exec_()
+        except Exception as exc:
+            QMessageBox.critical(self, "Ошибка обновления", f"Не удалось открыть мастер обновления: {exc}")
 
     def copy_to_clipboard(self):
         summary = format_build_summary()

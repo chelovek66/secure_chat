@@ -38,7 +38,7 @@ class DatabaseDialog(QDialog):
     def __init__(self, api_client: ApiClient, parent=None):
         super().__init__(parent)
         self.api = api_client
-        self.setWindowTitle("Управление базой данных — Абоненты и открытые ключи bign")
+        self.setWindowTitle("Управление базой данных — Абоненты и ключи")
         self.resize(1040, 620)
         self.setMinimumSize(940, 540)
         self.init_ui()
@@ -110,7 +110,7 @@ class DatabaseDialog(QDialog):
         self.users_table.setColumnCount(6)
         self.users_table.setHorizontalHeaderLabels([
             "User ID",
-            "Открытый ключ bign (64 байта / hex)",
+            "Открытый ключ (hex)",
             "Статус",
             "Дата регистрации",
             "Посл. активность",

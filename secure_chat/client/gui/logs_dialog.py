@@ -85,7 +85,7 @@ class LogsDialog(QDialog):
         title.setObjectName("titleLabel")
         v_title.addWidget(title)
 
-        subtitle = QLabel("Мониторинг криптографии СТБ 34.101, сетевых обменов E2EE и базы данных")
+        subtitle = QLabel("Мониторинг журнала событий безопасности, сетевых обменов и базы данных")
         subtitle.setObjectName("subtitleLabel")
         v_title.addWidget(subtitle)
         header_h.addLayout(v_title)

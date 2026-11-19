@@ -67,7 +67,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Secure Chat Server (Belarusian-STB / Bee2)",
+    title="Secure Chat Server",
     description="Высокопроизводительный сервер-ретранслятор зашифрованных сообщений с поддержкой SQLite",
     version="2.1.0",
     lifespan=lifespan,
