@@ -35,7 +35,7 @@ auth_router = APIRouter(tags=["Аутентификация"])
 
 def get_active_db():
     """Возвращает активный экземпляр менеджера БД с учетом изоляции тестов в storage.db."""
-    if storage.db is not None and storage.db.is_enabled():
+    if storage.db is not None:
         return storage.db
     return db_manager
 

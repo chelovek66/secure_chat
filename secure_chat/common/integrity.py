@@ -140,11 +140,11 @@ class SoftwareIntegrityManager:
     def generate_manifest(
         self,
         developer_keypair: Optional[BignKeyPair] = None,
-        developer_id: str = "Secure Chat Release Authority (СТБ РБ)",
+        developer_id: str = "Secure Chat Release Authority",
     ) -> dict:
         """
-        Формирует манифест эталонных контрольных сумм bash256 (СТБ 34.101.47-2017).
-        Если передан developer_keypair, манифест дополнительно подписывается ЭЦП bign-sign.
+        Формирует манифест эталонных контрольных сумм.
+        Если передан developer_keypair, манифест дополнительно подписывается ЭЦП.
         """
         files = self.scan_protected_files()
         files_dict: Dict[str, dict] = {}
@@ -157,19 +157,19 @@ class SoftwareIntegrityManager:
             }
 
         manifest = {
-            "format_version": "1.0-STB",
+            "format_version": "1.0",
             "created_at": datetime.now(timezone.utc).isoformat(),
             "developer_id": developer_id,
-            "hash_algorithm": "bash256 (СТБ 34.101.47-2017)",
+            "hash_algorithm": "Криптографическое хэширование",
             "files_count": len(files_dict),
             "files": files_dict,
         }
 
-        # Если передан ключ разработчика - накладываем ЭЦП bign (СТБ 34.101.45-2013)
+        # Если передан ключ разработчика - накладываем ЭЦП
         if developer_keypair is not None:
             manifest_digest = self.compute_canonical_manifest_digest(files_dict)
             signature = BignCrypto.sign(manifest_digest, developer_keypair.private_key)
-            manifest["signature_algorithm"] = "bign-sign-curve256v1 (СТБ 34.101.45-2013)"
+            manifest["signature_algorithm"] = "Электронная цифровая подпись"
             manifest["developer_public_key"] = developer_keypair.public_hex
             manifest["manifest_digest_hex"] = manifest_digest.hex()
             manifest["signature_hex"] = signature.hex()
@@ -300,7 +300,7 @@ class SoftwareIntegrityManager:
             is_valid = False
         else:
             status = "AUTHENTIC_AND_INTACT"
-            msg = "Целостность ПО успешно подтверждена: все контрольные суммы bash256 совпадают с эталоном."
+            msg = "Целостность ПО успешно подтверждена: все контрольные суммы совпадают с эталоном."
             is_valid = True
 
         return IntegrityReport(

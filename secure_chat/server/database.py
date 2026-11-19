@@ -128,6 +128,23 @@ class DatabaseManager:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
+    def _ensure_connection(self) -> bool:
+        """Гарантирует активное подключение к SQLite (переоткрывает при необходимости)."""
+        with self._lock:
+            if self._conn is None:
+                try:
+                    self._conn = sqlite3.connect(
+                        self.db_path,
+                        check_same_thread=False,
+                        timeout=30.0,
+                    )
+                    self._conn.row_factory = sqlite3.Row
+                    self.init_db()
+                except Exception as e:
+                    logger.error(f"Не удалось восстановить подключение к БД: {e}")
+                    return False
+            return True
+
     def init_db(self) -> None:
         """Создает таблицы и индексы в базе данных, если они отсутствуют."""
         with self._lock:
@@ -280,7 +297,7 @@ class DatabaseManager:
         with self._lock:
             pwd_hash, pwd_salt = hash_password_pbkdf2(password)
             now = datetime.now(timezone.utc).isoformat()
-            if self._conn is None:
+            if not self._ensure_connection():
                 return False
 
             with self._conn:
@@ -329,7 +346,7 @@ class DatabaseManager:
         Возвращает (успех: bool, открытый_ключ: Optional[str], сообщение: str).
         """
         with self._lock:
-            if self._conn is None:
+            if not self._ensure_connection():
                 return False, None, "База данных сервера недоступна"
 
             row = self._conn.execute(
@@ -454,7 +471,7 @@ class DatabaseManager:
         Истекшие сессии автоматически удаляются.
         """
         with self._lock:
-            if self._conn is None:
+            if not self._ensure_connection():
                 return None
             try:
                 row = self._conn.execute(
@@ -479,7 +496,7 @@ class DatabaseManager:
     def delete_session(self, token: str) -> bool:
         """Удаляет сессионный токен из базы данных (logout)."""
         with self._lock:
-            if self._conn is None:
+            if not self._ensure_connection():
                 return False
             try:
                 with self._conn:
@@ -492,7 +509,7 @@ class DatabaseManager:
     def delete_user_sessions(self, user_id: str) -> bool:
         """Удаляет все активные сессии указанного пользователя."""
         with self._lock:
-            if self._conn is None:
+            if not self._ensure_connection():
                 return False
             try:
                 with self._conn:
@@ -518,7 +535,7 @@ class DatabaseManager:
                 logger.debug(f"База данных выключена: персистентная запись открытого ключа '{user_id}' пропущена.")
                 return False
 
-            if self._conn is None:
+            if not self._ensure_connection():
                 return False
 
             now = datetime.now(timezone.utc).isoformat()
@@ -567,7 +584,7 @@ class DatabaseManager:
     def get_user(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Возвращает профиль пользователя по его идентификатору или None."""
         with self._lock:
-            if self._conn is None:
+            if not self._ensure_connection():
                 return None
             try:
                 row = self._conn.execute(
@@ -586,7 +603,7 @@ class DatabaseManager:
     def get_all_users(self) -> List[Dict[str, Any]]:
         """Возвращает список всех зарегистрированных пользователей."""
         with self._lock:
-            if self._conn is None:
+            if not self._ensure_connection():
                 return []
             try:
                 rows = self._conn.execute(
@@ -605,7 +622,7 @@ class DatabaseManager:
         """Обновляет временную метку последней активности пользователя."""
         now = datetime.now(timezone.utc).isoformat()
         with self._lock:
-            if self._conn is None:
+            if not self._ensure_connection():
                 return False
             try:
                 with self._conn:
@@ -628,7 +645,7 @@ class DatabaseManager:
         """Сбрасывает счетчик неудачных попыток ввода пароля и разблокирует пользователя."""
         now = datetime.now(timezone.utc).isoformat()
         with self._lock:
-            if self._conn is None:
+            if not self._ensure_connection():
                 return False
             try:
                 with self._conn:
@@ -651,7 +668,7 @@ class DatabaseManager:
         """Обновляет статус учетной записи ('active', 'suspended', 'blocked')."""
         now = datetime.now(timezone.utc).isoformat()
         with self._lock:
-            if self._conn is None:
+            if not self._ensure_connection():
                 return False
             try:
                 with self._conn:
@@ -677,7 +694,7 @@ class DatabaseManager:
         """Удаляет профиль пользователя и фиксирует операцию в журнале аудита."""
         now = datetime.now(timezone.utc).isoformat()
         with self._lock:
-            if self._conn is None:
+            if not self._ensure_connection():
                 return False
             try:
                 with self._conn:
@@ -708,7 +725,7 @@ class DatabaseManager:
         """Записывает произвольное событие в системный журнал аудита."""
         now = datetime.now(timezone.utc).isoformat()
         with self._lock:
-            if self._conn is None:
+            if not self._ensure_connection():
                 return
             try:
                 with self._conn:
@@ -729,7 +746,7 @@ class DatabaseManager:
     ) -> List[Dict[str, Any]]:
         """Возвращает последние записи журнала аудита с возможностью фильтрации по user_id."""
         with self._lock:
-            if self._conn is None:
+            if not self._ensure_connection():
                 return []
             if user_id:
                 rows = self._conn.execute(
@@ -757,7 +774,7 @@ class DatabaseManager:
     def get_stats(self) -> Dict[str, Any]:
         """Возвращает агрегированные метрики состояния базы данных."""
         with self._lock:
-            if self._conn is None:
+            if not self._ensure_connection():
                 return {
                     "enabled": self._enabled,
                     "db_path": self.db_path,
@@ -844,7 +861,7 @@ class DatabaseManager:
     ) -> bool:
         """Регистрирует новый выпуск ПО (релиз) в таблице releases."""
         with self._lock:
-            if self._conn is None:
+            if not self._ensure_connection():
                 return False
             if created_at is None:
                 created_at = datetime.now(timezone.utc).isoformat()
@@ -884,7 +901,7 @@ class DatabaseManager:
     ) -> Optional[Dict[str, Any]]:
         """Возвращает информацию о конкретном релизе по версии и платформе."""
         with self._lock:
-            if self._conn is None:
+            if not self._ensure_connection():
                 return None
             query = "SELECT * FROM releases WHERE version = ?"
             params: list[Any] = [version]
@@ -904,7 +921,7 @@ class DatabaseManager:
     ) -> Optional[Dict[str, Any]]:
         """Возвращает наиболее актуальный релиз ПО для указанной платформы."""
         with self._lock:
-            if self._conn is None:
+            if not self._ensure_connection():
                 return None
             query = "SELECT * FROM releases"
             params: list[Any] = []
@@ -938,7 +955,7 @@ class DatabaseManager:
     def delete_release(self, version: str) -> bool:
         """Удаляет релиз по номеру версии."""
         with self._lock:
-            if self._conn is None:
+            if not self._ensure_connection():
                 return False
             with self._conn:
                 cur = self._conn.execute("DELETE FROM releases WHERE version = ?", (version,))
@@ -956,7 +973,7 @@ class DatabaseManager:
     ) -> bool:
         """Записывает событие обновления ПО в журнал update_audit."""
         with self._lock:
-            if self._conn is None:
+            if not self._ensure_connection():
                 return False
             if ts is None:
                 ts = datetime.now(timezone.utc).isoformat()
@@ -986,7 +1003,7 @@ class DatabaseManager:
     ) -> List[Dict[str, Any]]:
         """Возвращает журнал аудита обновлений ПО."""
         with self._lock:
-            if self._conn is None:
+            if not self._ensure_connection():
                 return []
             if user_id:
                 rows = self._conn.execute(

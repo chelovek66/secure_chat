@@ -36,7 +36,7 @@ def test_manifest_generation_and_valid_verification(temp_project: Path):
 
     # Генерация манифеста
     manifest = manager.generate_manifest(dev_kp)
-    assert manifest["format_version"] == "1.0-STB"
+    assert manifest["format_version"] in ("1.0", "1.0-STB")
     assert manifest["files_count"] == 4
     assert len(manifest["signature_hex"]) == 128  # 64 байта в hex
 

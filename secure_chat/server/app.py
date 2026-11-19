@@ -23,7 +23,7 @@ from fastapi import FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
-from .database import db_manager
+from .database import db_manager, DatabaseManager
 from .models import (
     RegisterRequest,
     UserResponse,
@@ -181,13 +181,18 @@ async def get_inbox(user_id: str, request: Request):
 # --- Административные конечные точки управления БД ---
 
 
+def get_db() -> DatabaseManager:
+    return storage.db if storage.db is not None else db_manager
+
+
 @app.get("/admin/db/status", response_model=DbStatusResponse, tags=["Администрирование"])
 async def get_admin_db_status():
     """
     Возвращает статус активности базы данных:
     Включена ли персистентность открытых ключей и статистика ОЗУ/диска.
     """
-    stats = db_manager.get_stats()
+    db = get_db()
+    stats = db.get_stats()
     mem_users_cnt, _ = storage.count_stats()
     return DbStatusResponse(
         enabled=stats.get("enabled", True),
@@ -206,7 +211,7 @@ async def toggle_admin_db_state():
     Включена -> Сохраняет открытые ключи абонентов на диске.
     Выключена -> Открытые ключи хранятся исключительно в оперативной памяти (ОЗУ).
     """
-    current_enabled = db_manager.is_enabled()
+    current_enabled = get_db().is_enabled()
     new_enabled = not current_enabled
     storage.set_db_enabled(new_enabled, sync_memory=True)
     return await get_admin_db_status()
@@ -222,7 +227,7 @@ async def set_admin_db_status(req: SetDbStatusRequest):
 @app.get("/admin/db/stats", response_model=DbStatsResponse, tags=["Администрирование"])
 async def get_admin_db_stats():
     """Возвращает агрегированные метрики состояния базы данных SQLite."""
-    stats = db_manager.get_stats()
+    stats = get_db().get_stats()
     return DbStatsResponse(**stats)
 
 
@@ -240,11 +245,12 @@ async def get_admin_db_users(
     Возвращает реестр пользователей из базы данных.
     При format='csv' или export='csv' возвращает документ CSV.
     """
+    db = get_db()
     fmt = (format or export or "").lower()
     if fmt == "csv":
-        csv_data = db_manager.export_users_csv()
+        csv_data = db.export_users_csv()
         return Response(content=csv_data, media_type="text/csv")
-    return db_manager.get_all_users()
+    return db.get_all_users()
 
 
 @app.get("/admin/db/audit", response_model=List[AuditLogResponse], tags=["Администрирование"])
@@ -253,19 +259,20 @@ async def get_admin_db_audit(
     user_id: Optional[str] = Query(None, description="Фильтрация по идентификатору пользователя"),
 ):
     """Возвращает записи журнала аудита безопасности."""
-    return db_manager.get_audit_logs(limit=limit, user_id=user_id)
+    return get_db().get_audit_logs(limit=limit, user_id=user_id)
 
 
 @app.post("/admin/db/users/{user_id}/status", response_model=StatusResponse, tags=["Администрирование"])
 async def update_admin_user_status(user_id: str, req: UpdateUserStatusRequest):
     """Изменяет статус учетной записи пользователя в базе данных."""
-    user = db_manager.get_user(user_id)
+    db = get_db()
+    user = db.get_user(user_id)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Пользователь '{user_id}' не найден в базе данных",
         )
-    success = db_manager.update_user_status(user_id, req.status)
+    success = db.update_user_status(user_id, req.status)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -280,7 +287,8 @@ async def update_admin_user_status(user_id: str, req: UpdateUserStatusRequest):
 @app.delete("/admin/db/users/{user_id}", response_model=StatusResponse, tags=["Администрирование"])
 async def delete_admin_user(user_id: str):
     """Удаляет профиль пользователя из базы данных и ОЗУ сервера."""
-    user = db_manager.get_user(user_id)
+    db = get_db()
+    user = db.get_user(user_id)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

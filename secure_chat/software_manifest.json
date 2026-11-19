@@ -1,8 +1,8 @@
 {
-  "format_version": "1.0-STB",
-  "created_at": "2026-11-19T17:35:16.800887+00:00",
-  "developer_id": "Secure Chat Release Authority (СТБ РБ)",
-  "hash_algorithm": "bash256 (СТБ 34.101.47-2017)",
+  "format_version": "1.0",
+  "created_at": "2026-11-19T18:39:34.058461+00:00",
+  "developer_id": "Secure Chat Release Authority",
+  "hash_algorithm": "Криптографическое хэширование",
   "files_count": 39,
   "files": {
     "client/crypto/__init__.py": {
@@ -118,8 +118,8 @@
       "bash256_hash": "69fbd137a9c7365e268ea83934f66c1d5dc00d51e09a3f8dcb7de7e35cb80e80"
     },
     "common/integrity.py": {
-      "size_bytes": 15344,
-      "bash256_hash": "730ed047aa634c6653946fc93f9a624e309268a9912debccf33077b25c567cdf"
+      "size_bytes": 15283,
+      "bash256_hash": "49eecdacff13cda2e6f82347cb33e09d735c8e46d0e6919bb1ce24a9807f0983"
     },
     "common/logger.py": {
       "size_bytes": 11457,
