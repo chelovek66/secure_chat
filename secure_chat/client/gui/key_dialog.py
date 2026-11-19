@@ -376,7 +376,7 @@ class KeyDialog(QDialog):
             self,
             prompt_pub,
             str(dst),
-            "Ключи bkey (*.bkey);;Все файлы (*.*)",
+            "Файлы ключей (*.bkey);;Все файлы (*.*)",
         )
         if not pub_file:
             return
@@ -393,7 +393,7 @@ class KeyDialog(QDialog):
             self,
             prompt_priv,
             str(Path(pub_file).parent),
-            "Ключи bkey (*.bkey);;Все файлы (*.*)",
+            "Файлы ключей (*.bkey);;Все файлы (*.*)",
         )
         if not priv_file:
             return

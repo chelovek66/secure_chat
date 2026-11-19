@@ -406,7 +406,7 @@ class DatabaseDialog(QDialog):
         reply = QMessageBox.question(
             self,
             "Подтверждение удаления",
-            f"Вы действительно хотите удалить пользователя '{uid}' и его открытый ключ bign из БД?",
+            f"Вы действительно хотите удалить пользователя '{uid}' и его открытый ключ из базы данных?",
             QMessageBox.Yes | QMessageBox.No,
         )
         if reply == QMessageBox.Yes:

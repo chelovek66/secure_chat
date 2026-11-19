@@ -1,6 +1,6 @@
 {
   "format_version": "1.0-STB",
-  "created_at": "2026-11-19T17:19:12.325957+00:00",
+  "created_at": "2026-11-19T17:35:16.800887+00:00",
   "developer_id": "Secure Chat Release Authority (СТБ РБ)",
   "hash_algorithm": "bash256 (СТБ 34.101.47-2017)",
   "files_count": 39,
@@ -46,24 +46,24 @@
       "bash256_hash": "b14fa682a4c15748992427ffa1e06ef9f82e809861f729eb576dbd0251c207c1"
     },
     "client/gui/chat_dialog.py": {
-      "size_bytes": 14873,
-      "bash256_hash": "ea0f886d4249b53de7fef9a3bb93d50971af9d5b7bf2e118516b6d7a436d2824"
+      "size_bytes": 14880,
+      "bash256_hash": "187ae75d8d384e29dace31fa4055819f7d35402443415c33e5d76e5b6a19b262"
     },
     "client/gui/config_dialog.py": {
       "size_bytes": 10914,
       "bash256_hash": "d0df14da16632948db3f6d69019b10741cba827ef5b5b9315d34ef6b7b51a9f7"
     },
     "client/gui/database_dialog.py": {
-      "size_bytes": 23741,
-      "bash256_hash": "f2b4f1055a44d774c254bd021c62dbd56a4023c9b9cea41bce7dbcc29159ecc1"
+      "size_bytes": 23753,
+      "bash256_hash": "b57d337ab1daf6d4603f53d025203c98f6dd21ec91393f8b96138529221d5ddb"
     },
     "client/gui/integrity_dialog.py": {
       "size_bytes": 14154,
       "bash256_hash": "33659661b82c2ec3789a243a09676e5abcbcc62f2d1c2cc7ac01129e1cd2cab8"
     },
     "client/gui/key_dialog.py": {
-      "size_bytes": 20326,
-      "bash256_hash": "5ecd148813b04f7b3fbf99aff4377d142c2c49ff48a108e823404527ce023790"
+      "size_bytes": 20342,
+      "bash256_hash": "f9805ac621ead4c5d8e8426cb1453683de652fd1861efdb55dd1f8adef90ec88"
     },
     "client/gui/logs_dialog.py": {
       "size_bytes": 23776,
@@ -150,8 +150,8 @@
       "bash256_hash": "0a5c6dfe07fa88aa8c7328be82a17307abb540f1595e371c0d975b8446c9e43f"
     },
     "server/models.py": {
-      "size_bytes": 10576,
-      "bash256_hash": "1ed0b38b77b5558cfed85707002b82b9ba1519a5a1d02716d4d0bb0da9d923fb"
+      "size_bytes": 10605,
+      "bash256_hash": "8bc35dffb6e2b90d08a77d7ef33154d8b96035755b65fb014c2102698d396fba"
     },
     "server/storage.py": {
       "size_bytes": 10969,

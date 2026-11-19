@@ -10,7 +10,7 @@ class RegisterRequest(BaseModel):
     """Модель регистрации открытого ключа пользователя."""
     user_id: Optional[str] = Field(None, max_length=64, description="Уникальный идентификатор (псевдоним) пользователя")
     login: Optional[str] = Field(None, max_length=64, description="Логин пользователя (синоним user_id)")
-    public_key: str = Field(..., min_length=32, description="Открытый ключ bign (шестнадцатеричная или Base64 строка)")
+    public_key: str = Field(..., min_length=32, description="Открытый ключ абонента (шестнадцатеричная или Base64 строка)")
     password: Optional[str] = Field(None, description="Пароль пользователя при регистрации с аутентификацией")
     device_id: Optional[str] = Field(None, description="Идентификатор устройства")
 
@@ -39,7 +39,7 @@ class RegisterRequest(BaseModel):
     def validate_public_key(cls, v: str) -> str:
         clean = v.strip()
         if len(clean) < 32:
-            raise ValueError("Открытый ключ bign слишком короткий (минимум 32 символа)")
+            raise ValueError("Открытый ключ слишком короткий (минимум 32 символа)")
         return clean
 
 
@@ -54,11 +54,11 @@ class SendMessageRequest(BaseModel):
     """Модель пересылки зашифрованного пакета адресату."""
     from_id: str = Field(..., min_length=1, max_length=64)
     to_id: str = Field(..., min_length=1, max_length=64)
-    ciphertext: str = Field(..., min_length=1, description="Шифротекст belt-che (Base64)")
+    ciphertext: str = Field(..., min_length=1, description="Зашифрованное сообщение (Base64)")
     nonce: str = Field(..., min_length=1, description="Синхропосылка IV (Base64)")
     mac: str = Field(..., min_length=1, description="Имитовставка MAC (Base64)")
-    encrypted_key: str = Field(..., min_length=1, description="Зашифрованный сессионный ключ bign-keytrans (Base64)")
-    signature: str = Field(..., min_length=1, description="Цифровая подпись bign-sign (Base64)")
+    encrypted_key: str = Field(..., min_length=1, description="Зашифрованный сессионный ключ (Base64)")
+    signature: str = Field(..., min_length=1, description="Электронная цифровая подпись (Base64)")
 
 
 class MessageItem(BaseModel):
@@ -145,11 +145,11 @@ class AuditLogResponse(BaseModel):
 
 
 class UserRegisterRequest(BaseModel):
-    """Модель регистрации нового пользователя с паролем, открытым ключом bign и привязкой устройства."""
+    """Модель регистрации нового пользователя с паролем, открытым ключом и привязкой устройства."""
     user_id: Optional[str] = Field(None, max_length=64, description="Логин пользователя")
     login: Optional[str] = Field(None, max_length=64, description="Логин пользователя (синоним user_id)")
     password: str = Field(..., min_length=3, max_length=128, description="Пароль пользователя")
-    public_key: str = Field(..., min_length=32, description="Открытый ключ bign")
+    public_key: str = Field(..., min_length=32, description="Открытый ключ абонента")
     device_id: Optional[str] = Field(None, description="Отпечаток устройства (Device Fingerprint)")
 
     def get_user_id(self) -> str:

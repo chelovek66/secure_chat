@@ -276,7 +276,7 @@ class ChatDialog(QDialog):
                 sig_bytes = base64.b64decode(msg["signature"])
 
                 # Расшифрование и проверка ЭЦП
-                logger.info(f"Входящее сообщение от '{self.partner_id}'. Дешифрование конвейером СТБ 34.101...")
+                logger.info(f"Входящее сообщение от '{self.partner_id}'. Выполняется дешифрование сообщения...")
                 decrypted_text, is_valid_sig = HybridCrypto.decrypt_message(
                     payload=payload,
                     recipient_privkey=self.keypair.private_key,
