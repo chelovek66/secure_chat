@@ -1,0 +1,58 @@
+# Конфигурация SAST/SCA анализатора безопасности (sastsca)
+version: "1.0"
+
+# Порог критичности для завершения с ненулевым кодом (low, medium, high, critical)
+fail_on: high
+
+# Исключаемые каталоги и файлы (поддерживаются шаблоны glob)
+exclude_paths:
+  - ".git"
+  - ".pytest_cache"
+  - "__pycache__"
+  - "venv"
+  - ".venv"
+  - "env"
+  - "node_modules"
+  - "dist"
+  - "build"
+  - "*.egg-info"
+  - "keys"
+  - "*.db"
+  - "*.db-wal"
+  - "*.db-shm"
+  - "fuzz"
+  - "tests"
+
+# Настройки SAST-правил
+sast:
+  enabled: true
+  rules:
+    SAST-001:
+      enabled: true
+      title: "Hardcoded Secret"
+      severity: "High"
+    SAST-002:
+      enabled: true
+      title: "Unsafe Function Call (eval/exec/os.system/shell=True)"
+      severity: "High"
+    SAST-003:
+      enabled: true
+      title: "SQL Injection (Unsanitized Dynamic Query)"
+      severity: "High"
+    SAST-004:
+      enabled: true
+      title: "Insecure Deserialization (pickle/yaml)"
+      severity: "Critical"
+    SAST-005:
+      enabled: true
+      title: "Weak Cryptographic Primitive (MD5/SHA1/DES)"
+      severity: "Medium"
+
+# Настройки SCA-анализа зависимостей
+sca:
+  enabled: true
+  use_offline_cache: true
+  cache_ttl_hours: 24
+  manifest_files:
+    - "requirements.txt"
+    - "package.json"
