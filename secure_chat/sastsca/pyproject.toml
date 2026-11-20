@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sastsca"
+version = "1.0.0"
+description = "Static Application Security Testing & Software Composition Analysis Analyzer"
+readme = "README.md"
+authors = [{ name = "Secure Chat Security Team" }]
+requires-python = ">=3.9"
+dependencies = [
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "requests>=2.28.0"
+]
+
+[project.scripts]
+sastsca = "sastsca.cli:main"
