@@ -1,0 +1,17 @@
+{
+  "version": "2.2.0",
+  "min_supported": "1.0.0",
+  "release_date": "2026-11-20T15:18:13.762537+00:00",
+  "os": "windows",
+  "arch": "x64",
+  "package_url": "SecureClient-2.2.0-win-x64.zip",
+  "package_size": 973755,
+  "package_sha256": "9129719ba474e72e995dc88ad4c60a5b82b8140bec42585ba41c865aeb05b28c",
+  "signature": "FirD4xz+hN2ajOoPg+xxqql9q3KGrWG0yA5f1QCwfvJVHQLAXbadBEatv+GuScWZHhZD8CpLhIAWXym2i0hVDA==",
+  "sbom": {
+    "format": "CycloneDX-1.5",
+    "url": "sbom.json",
+    "sha256": "c56f1b05292c591cf974021749d8f80dbd289b3611300dda52e3b343837836a2"
+  },
+  "critical": false
+}

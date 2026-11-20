@@ -1,0 +1,67 @@
+{
+  "": "http://cyclonedx.org/schema/bom-1.5.json",
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "serialNumber": "urn:uuid:1da1e859-2b19-4c83-931c-dca26661e340",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-11-20T15:17:59.449551+00:00",
+    "tools": [
+      {
+        "vendor": "Secure Chat Release Authority",
+        "name": "build_release.py",
+        "version": "2.2.0"
+      }
+    ],
+    "component": {
+      "type": "application",
+      "name": "SecureClient",
+      "version": "2.2.0",
+      "description": "Защищенный клиентский мессенджер с серой темой оформления (версия 2.2.0)"
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "name": "cryptography",
+      "version": "50.0.1",
+      "purl": "pkg:pypi/cryptography@50.0.1",
+      "description": "Криптографическая библиотека Python (Ed25519, AES, RSA, X.509)",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "PyQt5",
+      "version": "5.15.11",
+      "purl": "pkg:pypi/pyqt5@5.15.11",
+      "description": "Python-биндинги графической подсистемы Qt5",
+      "licenses": [
+        {
+          "license": {
+            "id": "GPL-3.0"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "requests",
+      "version": "2.34.2",
+      "purl": "pkg:pypi/requests@2.34.2",
+      "description": "HTTP-клиент для взаимодействия с REST API сервера",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -13,6 +13,7 @@ from typing import Optional
 
 from PyQt5.QtCore import QObject, Qt, QThread, pyqtSignal
 from PyQt5.QtWidgets import (
+    QApplication,
     QDialog,
     QFileDialog,
     QGroupBox,
@@ -92,20 +93,20 @@ class UpdateDialog(QDialog):
 
         # 1. Заголовок
         title = QLabel("Подсистема безопасного обновления ПО")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #1E293B;")
+        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #60A5FA;")
         layout.addWidget(title)
 
         subtitle = QLabel("Контроль целостности, цифровая подпись Ed25519, валидация SBOM и атомарный откат")
-        subtitle.setStyleSheet("font-size: 12px; color: #64748B;")
+        subtitle.setStyleSheet("font-size: 12px; color: #94A3B8;")
         layout.addWidget(subtitle)
 
         # 2. Информационная панель
         info_box = QGroupBox("Параметры текущей установки")
         info_layout = QHBoxLayout(info_box)
 
-        lbl_cur_ver = QLabel(f"<b>Установленная версия:</b> {self.build_info.version}")
+        self.lbl_cur_ver = QLabel(f"<b>Установленная версия:</b> {self.build_info.version}")
         lbl_device = QLabel(f"<b>Аппаратный Device ID:</b> <code>{self.device_id}</code>")
-        info_layout.addWidget(lbl_cur_ver)
+        info_layout.addWidget(self.lbl_cur_ver)
         info_layout.addStretch()
         info_layout.addWidget(lbl_device)
         layout.addWidget(info_box)
@@ -122,19 +123,14 @@ class UpdateDialog(QDialog):
         action_layout = QHBoxLayout()
 
         self.btn_check_online = QPushButton("🌐 Проверить обновления онлайн", self)
-        self.btn_check_online.setStyleSheet("padding: 7px 14px; font-weight: bold;")
         self.btn_check_online.clicked.connect(self.check_online_update)
         action_layout.addWidget(self.btn_check_online)
 
         self.btn_select_offline = QPushButton("📁 Выбрать пакет офлайн...", self)
-        self.btn_select_offline.setStyleSheet("padding: 7px 14px;")
         self.btn_select_offline.clicked.connect(self.select_offline_manifest)
         action_layout.addWidget(self.btn_select_offline)
 
         self.btn_install = QPushButton("🚀 Установить обновление", self)
-        self.btn_install.setStyleSheet(
-            "padding: 7px 14px; font-weight: bold; background-color: #2563EB; color: white;"
-        )
         self.btn_install.setEnabled(False)
         self.btn_install.clicked.connect(self.start_installation)
         action_layout.addWidget(self.btn_install)
@@ -153,7 +149,7 @@ class UpdateDialog(QDialog):
         self.log_text = QTextEdit(self)
         self.log_text.setReadOnly(True)
         self.log_text.setStyleSheet(
-            "background-color: #0F172A; color: #38BDF8; font-family: Consolas, monospace; font-size: 11px;"
+            "color: #38BDF8; font-family: Consolas, monospace; font-size: 11px;"
         )
         layout.addWidget(self.log_text)
 
@@ -283,10 +279,31 @@ class UpdateDialog(QDialog):
             self.progress_bar.setValue(100)
             self.lbl_release_status.setText("✅ Обновление успешно установлено!")
             self.lbl_release_status.setStyleSheet("color: #16A34A; font-weight: bold;")
+
+            # Динамически перезагружаем стили и сведения о сборке
+            try:
+                import importlib
+                import client.gui.styles as styles_mod
+                import common.build_info as build_mod
+                importlib.reload(styles_mod)
+                importlib.reload(build_mod)
+
+                app_inst = QApplication.instance()
+                if app_inst:
+                    app_inst.setStyleSheet(styles_mod.APP_STYLESHEET)
+
+                new_info = build_mod.get_build_info()
+                self.build_info = new_info
+                self.current_version = new_info.version.split("-")[0]
+                self.lbl_cur_ver.setText(f"<b>Установленная версия:</b> {new_info.version}")
+                self.append_log(f"-> Интерфейс успешно переключен на версию {new_info.version}.")
+            except Exception as reload_err:
+                self.append_log(f"Примечание: для полного вступления изменений перезапустите приложение ({reload_err})")
+
             QMessageBox.information(
                 self,
                 "Обновление завершено",
-                "Обновление успешно установлено!\nДля применения всех изменений рекомендуется перезапустить приложение.",
+                "Обновление успешно установлено!\nНовая тема оформления и версия активированы.",
             )
         else:
             self.lbl_release_status.setText(f"❌ Ошибка установки: {message}")
