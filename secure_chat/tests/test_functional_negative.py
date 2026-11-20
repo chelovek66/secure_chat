@@ -93,7 +93,7 @@ def test_login_invalid_password(test_client):
     )
     assert login_resp.status_code == 401
     detail = login_resp.json()["detail"].lower()
-    assert "неверный пароль" in detail
+    assert "ошибка аутентификации" in detail or "осталось попыток" in detail
 
 
 def test_login_nonexistent_user(test_client):

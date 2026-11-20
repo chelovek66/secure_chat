@@ -389,9 +389,9 @@ class DatabaseManager:
                         )
                         self._conn.execute(
                             "INSERT INTO audit_log (timestamp, event_type, user_id, details) VALUES (?, ?, ?, ?)",
-                            (now, "ACCOUNT_LOCKED", user_id, "Превышен лимит неудачных попыток входа (5). Ввод пароля заблокирован."),
+                            (now, "ACCOUNT_LOCKED", user_id, "Превышен лимит неудачных попыток входа (5). Ввод заблокирован."),
                         )
-                        return False, None, "Превышено максимальное число попыток ввода пароля (5). Ввод пароля заблокирован!"
+                        return False, None, "Превышено максимальное число попыток входа (5). Ввод заблокирован!"
                     else:
                         self._conn.execute(
                             "UPDATE users SET failed_attempts = ? WHERE user_id = ?",
@@ -399,10 +399,10 @@ class DatabaseManager:
                         )
                         self._conn.execute(
                             "INSERT INTO audit_log (timestamp, event_type, user_id, details) VALUES (?, ?, ?, ?)",
-                            (now, "USER_LOGIN_FAILED", user_id, f"Ошибка аутентификации: неверный пароль (попытка {new_attempts} из 5)"),
+                            (now, "USER_LOGIN_FAILED", user_id, f"Ошибка аутентификации (попытка {new_attempts} из 5)"),
                         )
                         remaining = 5 - new_attempts
-                        return False, None, f"Неверный пароль! Осталось попыток: {remaining}"
+                        return False, None, f"Ошибка аутентификации! Осталось попыток: {remaining}"
 
             # Проверка Device Fingerprint
             stored_device_id = row["device_id"]

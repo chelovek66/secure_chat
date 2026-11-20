@@ -176,7 +176,8 @@ def test_login_failure_wrong_password(test_client):
         },
     )
     assert resp.status_code in (401, 400)
-    assert "неверный пароль" in resp.json()["detail"].lower()
+    detail_str = resp.json()["detail"].lower()
+    assert "ошибка аутентификации" in detail_str or "осталось попыток" in detail_str
 
 
 def test_login_failure_foreign_device_id_forbidden_403(test_client):

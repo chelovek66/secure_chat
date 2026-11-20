@@ -313,21 +313,21 @@ class AuthDialog(QDialog):
             res = self.api.login(username, password, device_id=self.device_id)
             if not res or ("token" not in res and not res.get("success")):
                 self.failed_attempts += 1
-                msg = res.get("message") or res.get("detail", "Неверный логин или пароль!")
+                msg = res.get("message") or res.get("detail", "Сбой проверки учетных данных!")
                 if self.failed_attempts >= 5 or "заблокирован" in msg.lower():
                     self.failed_attempts = 5
                     self.login_pass_input.clear()
                     self.login_pass_input.setEnabled(False)
-                    self.login_pass_input.setPlaceholderText("Ввод пароля заблокирован (5 неудачных попыток)")
+                    self.login_pass_input.setPlaceholderText("Ввод заблокирован (5 неудачных попыток)")
                     self.login_btn.setEnabled(False)
                     QMessageBox.critical(
                         self,
                         "Блокировка",
-                        "Превышено максимальное число попыток ввода пароля (5). Ввод пароля заблокирован!"
+                        "Превышено максимальное число попыток ввода (5). Ввод заблокирован!"
                     )
                 else:
                     remaining = 5 - self.failed_attempts
-                    QMessageBox.critical(self, "Ошибка входа", f"{msg}\nОсталось попыток: {remaining}")
+                    QMessageBox.critical(self, "Ошибка входа", f"Сбой проверки учетных данных.\nОсталось попыток: {remaining}")
                 return
 
             self.failed_attempts = 0
@@ -347,19 +347,29 @@ class AuthDialog(QDialog):
                 self.failed_attempts = 5
                 self.login_pass_input.clear()
                 self.login_pass_input.setEnabled(False)
-                self.login_pass_input.setPlaceholderText("Ввод пароля заблокирован (5 неудачных попыток)")
+                self.login_pass_input.setPlaceholderText("Ввод заблокирован (5 неудачных попыток)")
                 self.login_btn.setEnabled(False)
                 QMessageBox.critical(
                     self,
                     "Блокировка",
-                    "Превышено максимальное число попыток ввода пароля (5). Ввод пароля заблокирован!"
+                    "Превышено максимальное число попыток ввода (5). Ввод заблокирован!"
                 )
             else:
                 remaining = 5 - self.failed_attempts
+                detail_text = getattr(exc, "detail", "") or str(exc)
+                if "осталось попыток:" in detail_text.lower():
+                    import re
+                    m = re.search(r"осталось попыток:\s*(\d+)", detail_text, re.IGNORECASE)
+                    if m:
+                        try:
+                            remaining = int(m.group(1))
+                            self.failed_attempts = 5 - remaining
+                        except Exception:
+                            pass
                 QMessageBox.critical(
                     self,
                     "Ошибка аутентификации",
-                    f"Сбой проверки учетных данных: {exc}\nОсталось попыток: {remaining}"
+                    f"Сбой проверки учетных данных.\nОсталось попыток: {remaining}"
                 )
 
     def handle_register(self):

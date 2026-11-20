@@ -96,9 +96,19 @@ class ApiClient:
                 logger.warning(f"Таймаут соединения с сервером {self.base_url} ({endpoint}).")
             raise ApiConnectionError(f"Таймаут соединения с {self.base_url}") from exc
         except requests.exceptions.HTTPError as exc:
+            detail_msg = None
+            try:
+                err_json = resp.json()
+                if isinstance(err_json, dict):
+                    detail_msg = err_json.get("detail")
+            except Exception:
+                pass
             if not silent:
-                logger.error(f"HTTP ошибка от сервера {url} (код {resp.status_code}): {resp.text}")
-            raise ApiClientError(f"Ошибка сервера (HTTP {resp.status_code}): {resp.text}") from exc
+                logger.error(f"HTTP ошибка от сервера {url} (код {resp.status_code}): {detail_msg or resp.text}")
+            err = ApiClientError(f"Ошибка сервера (HTTP {resp.status_code}): {detail_msg or resp.text}")
+            err.status_code = resp.status_code
+            err.detail = detail_msg
+            raise err from exc
         except Exception as exc:
             if not silent:
                 logger.error(f"Непредвиденная сетевая ошибка: {exc}")

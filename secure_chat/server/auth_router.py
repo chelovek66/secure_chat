@@ -195,7 +195,7 @@ async def login(req: UserLoginRequest, request: Request):
             )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=msg or "Неверный логин или пароль",
+            detail=msg or "Ошибка аутентификации",
         )
 
     # Генерация токена сессии

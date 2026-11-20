@@ -360,7 +360,7 @@ class FallbackBee2Engine:
             privkey = cls.belt_che_decrypt(encrypted_body, mac, kek, salt)
             return privkey
         except ValueError as err:
-            raise ValueError("Неверный пароль от закрытого ключа или повреждение контейнера") from err
+            raise ValueError("Ошибка доступа к закрытому ключу или повреждение контейнера") from err
 
 
 # Инициализация глобального интерфейса Bee2

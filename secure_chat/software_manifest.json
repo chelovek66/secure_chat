@@ -1,6 +1,6 @@
 {
   "format_version": "1.0",
-  "created_at": "2026-11-19T18:39:34.058461+00:00",
+  "created_at": "2026-11-20T14:12:36.528684+00:00",
   "developer_id": "Secure Chat Release Authority",
   "hash_algorithm": "Криптографическое хэширование",
   "files_count": 39,
@@ -14,8 +14,8 @@
       "bash256_hash": "a6e9e19d8df569f6053504b06d25309fde5274ff9bfbcb2b843a9d9a222e7fff"
     },
     "client/crypto/bee2_wrapper.py": {
-      "size_bytes": 18757,
-      "bash256_hash": "70eb65b996c175475857b18600bb20579892dd2fe2ba5814164e9781c291ae8c"
+      "size_bytes": 18753,
+      "bash256_hash": "04854cdb8213650f6dde7ab34e9f5c7b5985a285a1261a50ac82a8a9bd459f52"
     },
     "client/crypto/belt.py": {
       "size_bytes": 5147,
@@ -38,8 +38,8 @@
       "bash256_hash": "4aceda599aa6335ea5c7de52b00cd3b72f816c988bebd17bd795796961d19049"
     },
     "client/gui/auth_dialog.py": {
-      "size_bytes": 23147,
-      "bash256_hash": "a76406d65a0a6ff6673a48bd63b8a7b1983d93964012c220c03257831b602235"
+      "size_bytes": 23663,
+      "bash256_hash": "6e2b3d94484a7d5a21844f1fde03f84909e900bb03d3ba13fcc38935d3a14e0b"
     },
     "client/gui/build_dialog.py": {
       "size_bytes": 5717,
@@ -94,8 +94,8 @@
       "bash256_hash": "e29e9005583e5fe1b771e8214bb6bf429791a4786f08bcb91529c6dcaca4c20f"
     },
     "client/network/api_client.py": {
-      "size_bytes": 13772,
-      "bash256_hash": "4035fbf85e159975dfd69ed2da8811bbcae0408c02c08e0f1b8a4e90dcdcbaeb"
+      "size_bytes": 14155,
+      "bash256_hash": "6f180b85fdbc13460c2b0ecfe059d072ae00f8f80d8add43556204d6ecec8c3a"
     },
     "client/updater.py": {
       "size_bytes": 30584,
@@ -134,20 +134,20 @@
       "bash256_hash": "4923547507babbbe5fc9d74791c2566b4addefc186447b4d33a055b357ab14a6"
     },
     "server/app.py": {
-      "size_bytes": 12733,
-      "bash256_hash": "3a6ef26debdfc93a36d5f39a670bb1cd0f67fd82a19b093d1cbdafbd6213bfbb"
+      "size_bytes": 12875,
+      "bash256_hash": "9f173b68bc70bb8808dec065eef1897c5595908df5a3217233442ddb2b63e4c8"
     },
     "server/auth_router.py": {
-      "size_bytes": 13642,
-      "bash256_hash": "f45f88a2520d7b4e8fab6bc25e9dab4701b263baac60bc06bc0ce5913ac44504"
+      "size_bytes": 13608,
+      "bash256_hash": "5880d2005c2e181988c5c9547c3c664efe3f2bb8bc4fd91069b1be7ecc16dc36"
     },
     "server/config.py": {
       "size_bytes": 967,
       "bash256_hash": "fcfd16a038f50b78ab32907a566bf935d648cdcf765f6f7155786dc6774f4215"
     },
     "server/database.py": {
-      "size_bytes": 48597,
-      "bash256_hash": "0a5c6dfe07fa88aa8c7328be82a17307abb540f1595e371c0d975b8446c9e43f"
+      "size_bytes": 49565,
+      "bash256_hash": "37abcfdd05c671235f60332400cda01757057435242f1a3b4f2f1d80f16e1475"
     },
     "server/models.py": {
       "size_bytes": 10605,
