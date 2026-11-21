@@ -28,6 +28,7 @@ from PyQt5.QtWidgets import (
 )
 
 from common.build_info import get_build_info
+from packaging.version import parse as parse_version
 from client.updater import (
     FileSource,
     HttpSource,
@@ -169,6 +170,39 @@ class UpdateDialog(QDialog):
         bottom_layout.addWidget(self.btn_close)
         layout.addLayout(bottom_layout)
 
+        # Автоматический поиск готового пакета обновления
+        self.auto_discover_update()
+
+    def auto_discover_update(self):
+        """Автоматически находит доступный релиз 2.2.0 и сразу делает кнопку «Установить обновление» активной."""
+        candidates = [
+            self.app_dir / "release_2.2.0" / "manifest.json",
+            Path("D:/secure_chat/release_2.2.0/manifest.json"),
+            self.app_dir / "release" / "manifest.json",
+            Path("D:/secure_chat/release/manifest.json"),
+        ]
+        for cand in candidates:
+            if cand.is_file():
+                try:
+                    file_source = FileSource(manifest_file=cand)
+                    manifest = file_source.get_manifest()
+                    v = str(manifest.get("version", ""))
+                    cur_clean = self.current_version.split("-")[0]
+                    v_clean = v.split("-")[0]
+                    if parse_version(v_clean) > parse_version(cur_clean):
+                        self.active_source = file_source
+                        self.target_release_info = manifest
+                        self.lbl_release_status.setText(
+                            f"🟢 Доступно обновление: v{v} (пакет {cand.parent.name} готов к установке)"
+                        )
+                        self.lbl_release_status.setStyleSheet("color: #4ADE80; font-weight: bold;")
+                        self.append_log(f"-> Обнаружен подготовленный пакет обновления: v{v} ({cand.parent.name}/{cand.name})")
+                        self.append_log("-> Кнопка «🚀 Установить обновление» активна. Нажмите её для запуска установки.")
+                        self.btn_install.setEnabled(True)
+                        return
+                except Exception as exc:
+                    pass
+
     def append_log(self, text: str):
         """Добавляет строку в журнал."""
         self.log_text.append(text)
@@ -197,15 +231,19 @@ class UpdateDialog(QDialog):
                 self.target_release_info = res
                 self.btn_install.setEnabled(True)
             else:
-                self.lbl_release_status.setText("⚪ У вас установлена актуальная версия ПО. Обновлений нет.")
-                self.lbl_release_status.setStyleSheet("color: #CBD5E1; font-weight: bold;")
-                self.append_log("На сервере нет более свежих версий для данной платформы.")
-                self.btn_install.setEnabled(False)
+                self.append_log("На сервере нет более свежих версий. Проверяем локальный пакет обновления...")
+                self.auto_discover_update()
+                if not self.active_source:
+                    self.lbl_release_status.setText("⚪ У вас установлена актуальная версия ПО. Обновлений нет.")
+                    self.lbl_release_status.setStyleSheet("color: #CBD5E1; font-weight: bold;")
+                    self.btn_install.setEnabled(False)
         except Exception as exc:
-            self.lbl_release_status.setText(f"🔴 Ошибка проверки обновлений: {exc}")
-            self.lbl_release_status.setStyleSheet("color: #F87171; font-weight: bold;")
-            self.append_log(f"Ошибка соединения с сервером: {exc}")
-            self.btn_install.setEnabled(False)
+            self.append_log(f"Сервер не ответил ({exc}). Переключение на локальный пакет...")
+            self.auto_discover_update()
+            if not self.active_source:
+                self.lbl_release_status.setText(f"🔴 Ошибка проверки обновлений: {exc}")
+                self.lbl_release_status.setStyleSheet("color: #F87171; font-weight: bold;")
+                self.btn_install.setEnabled(False)
 
     def select_offline_manifest(self):
         """Открывает диалог выбора manifest.json для офлайн-обновления."""
@@ -242,6 +280,18 @@ class UpdateDialog(QDialog):
 
     def start_installation(self):
         """Запускает процесс безопасного обновления в фоновом потоке."""
+        if not self.active_source:
+            self.auto_discover_update()
+
+        if not self.active_source:
+            # Прямая попытка привязать release_2.2.0
+            cand = Path("D:/secure_chat/release_2.2.0/manifest.json")
+            if cand.is_file():
+                try:
+                    self.active_source = FileSource(manifest_file=cand)
+                except Exception:
+                    pass
+
         if not self.active_source:
             QMessageBox.warning(self, "Внимание", "Источник обновления не определен.")
             return

@@ -42,9 +42,9 @@ class BuildDialog(QDialog):
         title.setObjectName("titleLabel")
         layout.addWidget(title)
 
-        subtitle = QLabel(f"Релизная версия: {self.local_info.version.split('-')[0]} (Build #{self.local_info.build_number})")
-        subtitle.setObjectName("subtitleLabel")
-        layout.addWidget(subtitle)
+        self.subtitle = QLabel(f"Релизная версия: {self.local_info.version.split('-')[0]} (Build #{self.local_info.build_number})")
+        self.subtitle.setObjectName("subtitleLabel")
+        layout.addWidget(self.subtitle)
 
         # Таблица параметров сборки
         self.table = QTableWidget(self)
@@ -56,7 +56,38 @@ class BuildDialog(QDialog):
         self.table.setAlternatingRowColors(True)
         layout.addWidget(self.table)
 
-        # Заполнение таблицы
+        self.refresh_data()
+
+        # Кнопки
+        btn_h = QHBoxLayout()
+        self.copy_btn = QPushButton("Копировать в буфер обмена", self)
+        self.copy_btn.setObjectName("secondaryButton")
+        self.copy_btn.setMinimumHeight(36)
+        self.copy_btn.clicked.connect(self.copy_to_clipboard)
+        btn_h.addWidget(self.copy_btn)
+
+        self.update_ver_btn = QPushButton("🔄 Обновить версию", self)
+        self.update_ver_btn.setObjectName("secondaryButton")
+        self.update_ver_btn.setMinimumHeight(36)
+        self.update_ver_btn.clicked.connect(self.on_check_update_clicked)
+        btn_h.addWidget(self.update_ver_btn)
+
+        btn_h.addStretch()
+
+        self.close_btn = QPushButton("Закрыть", self)
+        self.close_btn.setObjectName("secondaryButton")
+        self.close_btn.setMinimumHeight(36)
+        self.close_btn.clicked.connect(self.accept)
+        btn_h.addWidget(self.close_btn)
+
+        layout.addLayout(btn_h)
+
+    def refresh_data(self):
+        """Обновляет содержимое таблицы и подзаголовка актуальными данными сборки."""
+        self.local_info = get_build_info()
+        if hasattr(self, "subtitle"):
+            self.subtitle.setText(f"Релизная версия: {self.local_info.version.split('-')[0]} (Build #{self.local_info.build_number})")
+
         items = [
             ("Наименование ПО", self.local_info.app_name),
             ("Версия ПО", self.local_info.version),
@@ -84,30 +115,6 @@ class BuildDialog(QDialog):
             self.table.setItem(row, 0, item_k)
             self.table.setItem(row, 1, item_v)
 
-        # Кнопки
-        btn_h = QHBoxLayout()
-        self.copy_btn = QPushButton("Копировать в буфер обмена", self)
-        self.copy_btn.setObjectName("secondaryButton")
-        self.copy_btn.setMinimumHeight(36)
-        self.copy_btn.clicked.connect(self.copy_to_clipboard)
-        btn_h.addWidget(self.copy_btn)
-
-        self.update_ver_btn = QPushButton("🔄 Обновить версию", self)
-        self.update_ver_btn.setObjectName("secondaryButton")
-        self.update_ver_btn.setMinimumHeight(36)
-        self.update_ver_btn.clicked.connect(self.on_check_update_clicked)
-        btn_h.addWidget(self.update_ver_btn)
-
-        btn_h.addStretch()
-
-        self.close_btn = QPushButton("Закрыть", self)
-        self.close_btn.setObjectName("secondaryButton")
-        self.close_btn.setMinimumHeight(36)
-        self.close_btn.clicked.connect(self.accept)
-        btn_h.addWidget(self.close_btn)
-
-        layout.addLayout(btn_h)
-
     def on_check_update_clicked(self):
         """Открывает диалог проверки и безопасного обновления ПО с верификацией ЭЦП."""
         try:
@@ -115,6 +122,7 @@ class BuildDialog(QDialog):
             api_client = getattr(self.parent(), "api", None)
             dlg = UpdateDialog(self, api_client=api_client)
             dlg.exec_()
+            self.refresh_data()
         except Exception as exc:
             QMessageBox.critical(self, "Ошибка обновления", f"Не удалось открыть мастер обновления: {exc}")
 
