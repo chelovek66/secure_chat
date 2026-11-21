@@ -35,7 +35,7 @@ from cryptography.hazmat.primitives import serialization
 
 # Конфигурация сборки
 APP_NAME = "SecureClient"
-VERSION = "2.2.0"
+VERSION = "2.1.0"
 MIN_SUPPORTED = "1.0.0"
 OS_NAME = "windows"
 ARCH_NAME = "x64"
