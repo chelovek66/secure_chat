@@ -93,19 +93,19 @@ class UpdateDialog(QDialog):
 
         # 1. Заголовок
         title = QLabel("Подсистема безопасного обновления ПО")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #60A5FA;")
+        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #93C5FD;")
         layout.addWidget(title)
 
         subtitle = QLabel("Контроль целостности, цифровая подпись Ed25519, валидация SBOM и атомарный откат")
-        subtitle.setStyleSheet("font-size: 12px; color: #94A3B8;")
+        subtitle.setStyleSheet("font-size: 12px; color: #CBD5E1;")
         layout.addWidget(subtitle)
 
         # 2. Информационная панель
         info_box = QGroupBox("Параметры текущей установки")
         info_layout = QHBoxLayout(info_box)
 
-        self.lbl_cur_ver = QLabel(f"<b>Установленная версия:</b> {self.build_info.version}")
-        lbl_device = QLabel(f"<b>Аппаратный Device ID:</b> <code>{self.device_id}</code>")
+        self.lbl_cur_ver = QLabel(f"<b>Установленная версия:</b> <span style='color: #60A5FA; font-weight: bold;'>{self.build_info.version}</span>")
+        lbl_device = QLabel(f"<b>Аппаратный Device ID:</b> <code style='color: #94A3B8;'>{self.device_id}</code>")
         info_layout.addWidget(self.lbl_cur_ver)
         info_layout.addStretch()
         info_layout.addWidget(lbl_device)
@@ -115,7 +115,7 @@ class UpdateDialog(QDialog):
         release_box = QGroupBox("Состояние релиза")
         rel_layout = QVBoxLayout(release_box)
         self.lbl_release_status = QLabel("Нажмите «Проверить онлайн» или выберите локальный manifest.json")
-        self.lbl_release_status.setStyleSheet("color: #475569; font-weight: bold;")
+        self.lbl_release_status.setStyleSheet("color: #E2E8F0; font-weight: bold;")
         rel_layout.addWidget(self.lbl_release_status)
         layout.addWidget(release_box)
 
@@ -183,19 +183,19 @@ class UpdateDialog(QDialog):
                 self.lbl_release_status.setText(
                     f"🟢 Доступно онлайн-обновление: v{ver} (мин. поддерживаемая: v{min_sup})"
                 )
-                self.lbl_release_status.setStyleSheet("color: #16A34A; font-weight: bold;")
+                self.lbl_release_status.setStyleSheet("color: #4ADE80; font-weight: bold;")
                 self.append_log(f"Найдена новая версия: {ver} (мин. поддерживаемая: {min_sup})")
                 self.active_source = http_source
                 self.target_release_info = res
                 self.btn_install.setEnabled(True)
             else:
                 self.lbl_release_status.setText("⚪ У вас установлена актуальная версия ПО. Обновлений нет.")
-                self.lbl_release_status.setStyleSheet("color: #475569; font-weight: bold;")
+                self.lbl_release_status.setStyleSheet("color: #CBD5E1; font-weight: bold;")
                 self.append_log("На сервере нет более свежих версий для данной платформы.")
                 self.btn_install.setEnabled(False)
         except Exception as exc:
             self.lbl_release_status.setText(f"🔴 Ошибка проверки обновлений: {exc}")
-            self.lbl_release_status.setStyleSheet("color: #DC2626; font-weight: bold;")
+            self.lbl_release_status.setStyleSheet("color: #F87171; font-weight: bold;")
             self.append_log(f"Ошибка соединения с сервером: {exc}")
             self.btn_install.setEnabled(False)
 
@@ -221,14 +221,14 @@ class UpdateDialog(QDialog):
             self.lbl_release_status.setText(
                 f"📦 Офлайн-пакет выбран: v{ver} (файл: {Path(file_path).name})"
             )
-            self.lbl_release_status.setStyleSheet("color: #0284C7; font-weight: bold;")
+            self.lbl_release_status.setStyleSheet("color: #38BDF8; font-weight: bold;")
             self.append_log(f"Манифест загружен. Целевая версия: {ver}, min_supported: {min_sup}")
             self.active_source = file_source
             self.target_release_info = manifest
             self.btn_install.setEnabled(True)
         except Exception as exc:
             self.lbl_release_status.setText(f"🔴 Ошибка загрузки манифеста: {exc}")
-            self.lbl_release_status.setStyleSheet("color: #DC2626; font-weight: bold;")
+            self.lbl_release_status.setStyleSheet("color: #F87171; font-weight: bold;")
             self.append_log(f"Ошибка парсинга манифеста: {exc}")
             self.btn_install.setEnabled(False)
 
