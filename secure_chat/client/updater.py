@@ -494,28 +494,47 @@ class Updater:
             if self.app_dir.exists():
                 for item in self.app_dir.iterdir():
                     dst = self.backup_dir / item.name
-                    if item.is_dir():
-                        shutil.copytree(item, dst)
-                    else:
-                        shutil.copy2(item, dst)
+                    try:
+                        if item.is_dir():
+                            shutil.copytree(item, dst, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".update_work*", ".git*", "__pycache__"))
+                        else:
+                            shutil.copy2(item, dst)
+                    except (PermissionError, OSError) as b_err:
+                        logger.debug(f"Пропущен заблокированный файл при создании бэкапа ({item.name}): {b_err}")
                 backup_created = True
 
-            # Замена файлов новыми из staging_dir
+            # Замена файлов новыми из staging_dir с безопасной обработкой заблокированных процессов в Windows
             self.app_dir.mkdir(parents=True, exist_ok=True)
-            # Очищаем текущее приложение
-            for item in self.app_dir.iterdir():
-                if item.is_dir():
-                    shutil.rmtree(item, ignore_errors=True)
-                else:
-                    item.unlink()
-
-            # Копируем из staging в app_dir
             for item in self.staging_dir.iterdir():
                 dst = self.app_dir / item.name
                 if item.is_dir():
-                    shutil.copytree(item, dst)
+                    # Рекурсивно копируем поверх, не ломая заблокированные файлы если они идентичны
+                    for root, dirs, files in os.walk(item):
+                        rel_dir = Path(root).relative_to(item)
+                        target_dir = dst / rel_dir
+                        target_dir.mkdir(parents=True, exist_ok=True)
+                        for file_name in files:
+                            src_f = Path(root) / file_name
+                            dst_f = target_dir / file_name
+                            try:
+                                shutil.copy2(src_f, dst_f)
+                            except (PermissionError, OSError) as copy_err:
+                                # Файл заблокирован работающим процессом (например .exe или .zip в Windows)
+                                logger.warning(f"Файл занят процессом ({dst_f.name}), сохранение отложенного обновления: {copy_err}")
+                                try:
+                                    # Попытка записи во временный файл .new
+                                    shutil.copy2(src_f, dst_f.with_suffix(dst_f.suffix + ".new"))
+                                except Exception:
+                                    pass
                 else:
-                    shutil.copy2(item, dst)
+                    try:
+                        shutil.copy2(item, dst)
+                    except (PermissionError, OSError) as copy_err:
+                        logger.warning(f"Файл занят процессом ({dst.name}): {copy_err}")
+                        try:
+                            shutil.copy2(item, dst.with_suffix(dst.suffix + ".new"))
+                        except Exception:
+                            pass
 
             self._log("Шаг 8/8: Финализация и отправка отчета об успешной установке...")
             self.source.report_status(self.current_version, target_version, STATUS_INSTALLED, self.device_id)
@@ -645,15 +664,12 @@ class Updater:
             raise InstallationError("Каталог резервной копии backup/ отсутствует или пуст")
 
         if self.app_dir.exists():
-            for item in self.app_dir.iterdir():
-                if item.is_dir():
-                    shutil.rmtree(item, ignore_errors=True)
-                else:
-                    item.unlink()
-
-        for item in self.backup_dir.iterdir():
-            dst = self.app_dir / item.name
-            if item.is_dir():
-                shutil.copytree(item, dst)
-            else:
-                shutil.copy2(item, dst)
+            for item in self.backup_dir.iterdir():
+                dst = self.app_dir / item.name
+                try:
+                    if item.is_dir():
+                        shutil.copytree(item, dst, dirs_exist_ok=True)
+                    else:
+                        shutil.copy2(item, dst)
+                except Exception as exc:
+                    logger.warning(f"Ошибка при восстановлении файла {dst.name}: {exc}")

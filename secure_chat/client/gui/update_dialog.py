@@ -8,6 +8,7 @@
   * Информацию об аппаратном идентификаторе (device_id) и текущей версии ПО.
 """
 
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -77,7 +78,14 @@ class UpdateDialog(QDialog):
         self.device_id = get_device_id()
         self.server_url = getattr(api_client, "base_url", "http://127.0.0.1:8000")
 
-        self.app_dir = Path(__file__).resolve().parent.parent.parent
+        # Определение корневой папки приложения (с учетом запуска из exe или исходного кода)
+        if getattr(sys, "frozen", False):
+            # Если запущен скомпилированный SecureClient.exe, приложение находится в корне репозитория/проекта
+            self.app_dir = Path(sys.executable).resolve().parent.parent.parent
+            if not (self.app_dir / "client").is_dir():
+                self.app_dir = Path(sys.executable).resolve().parent
+        else:
+            self.app_dir = Path(__file__).resolve().parent.parent.parent
 
         self.active_source = None
         self.target_release_info = None
