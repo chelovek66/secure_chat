@@ -42,7 +42,7 @@ class BuildDialog(QDialog):
         title.setObjectName("titleLabel")
         layout.addWidget(title)
 
-        subtitle = QLabel(f"Релизная версия: 2.1.0 (Build #{self.local_info.build_number})")
+        subtitle = QLabel(f"Релизная версия: {self.local_info.version.split('-')[0]} (Build #{self.local_info.build_number})")
         subtitle.setObjectName("subtitleLabel")
         layout.addWidget(subtitle)
 

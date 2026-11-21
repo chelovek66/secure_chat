@@ -1,131 +1,33 @@
 {
-  "$schema": "http://cyclonedx.org/schema/bom-1.5.json",
+  "": "http://cyclonedx.org/schema/bom-1.5.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
-  "serialNumber": "urn:uuid:317eeb2d-ad1b-4965-93e0-0ada27b6c0ae",
+  "serialNumber": "urn:uuid:09788ed4-577d-4939-9aaa-9f464cf4b189",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-11-21T06:16:56.266790+00:00",
-    "tools": [
-      {
-        "vendor": "Secure Chat Release Authority",
-        "name": "build_release.py",
-        "version": "2.2.0"
-      }
-    ],
+    "timestamp": "2026-11-21T06:46:32.359620+00:00",
     "component": {
       "type": "application",
       "name": "SecureClient",
       "version": "2.2.0",
-      "description": "Защищенный клиентский мессенджер с криптографией СТБ РБ и защитой обновлений"
+      "description": "Защищенный клиентский мессенджер с серой темой оформления (версия 2.2.0)"
     }
   },
   "components": [
     {
       "type": "library",
       "name": "cryptography",
-      "version": "50.0.1",
-      "purl": "pkg:pypi/cryptography@50.0.1",
-      "description": "Криптографическая библиотека Python (Ed25519, AES, RSA, X.509)",
-      "licenses": [
-        {
-          "license": {
-            "id": "Apache-2.0"
-          }
-        }
-      ]
+      "version": "50.0.1"
     },
     {
       "type": "library",
       "name": "PyQt5",
-      "version": "5.15.11",
-      "purl": "pkg:pypi/pyqt5@5.15.11",
-      "description": "Python-биндинги графической подсистемы Qt5",
-      "licenses": [
-        {
-          "license": {
-            "id": "GPL-3.0"
-          }
-        }
-      ]
+      "version": "5.15.11"
     },
     {
       "type": "library",
       "name": "requests",
-      "version": "2.34.2",
-      "purl": "pkg:pypi/requests@2.34.2",
-      "description": "HTTP-клиент для взаимодействия с REST API сервера",
-      "licenses": [
-        {
-          "license": {
-            "id": "Apache-2.0"
-          }
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "fastapi",
-      "version": "0.141.1",
-      "purl": "pkg:pypi/fastapi@0.141.1",
-      "description": "Высокопроизводительный веб-фреймворк REST API",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "uvicorn",
-      "version": "0.53.0",
-      "purl": "pkg:pypi/uvicorn@0.53.0",
-      "description": "Молниеносный ASGI веб-сервер",
-      "licenses": [
-        {
-          "license": {
-            "id": "BSD-3-Clause"
-          }
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "pydantic",
-      "version": "2.13.5",
-      "purl": "pkg:pypi/pydantic@2.13.5",
-      "description": "Валидация структур данных и настроек",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "bee2.dll",
-      "version": "2.2.0",
-      "description": "Национальная криптографическая библиотека Республики Беларусь (СТБ 34.101.45/31/47/78)",
-      "hashes": [
-        {
-          "alg": "SHA-256",
-          "content": "662369639ebeae3111179a2aad0f46e9718e823c05b42a3250e79bdd1ef959f8"
-        }
-      ],
-      "properties": [
-        {
-          "name": "file_size",
-          "value": "668672"
-        },
-        {
-          "name": "standards",
-          "value": "СТБ 34.101.45-2013, СТБ 34.101.31-2011, СТБ 34.101.47-2017"
-        }
-      ]
+      "version": "2.34.2"
     }
   ]
 }

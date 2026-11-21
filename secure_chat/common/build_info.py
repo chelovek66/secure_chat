@@ -21,8 +21,8 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger("secure_chat.build_info")
 
 APP_NAME = "Secure Chat"
-VERSION = "2.2.0"
-BUILD_NUMBER = 106
+VERSION = "2.1.0"
+BUILD_NUMBER = 105
 OFFICIAL_RELEASE_DATE = "21.11.2026 09:00:00"
 
 DEFAULT_STB_STANDARDS: List[str] = [
