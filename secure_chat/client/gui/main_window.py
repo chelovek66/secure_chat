@@ -141,6 +141,11 @@ class MainWindow(QMainWindow):
         self.sys_about_btn.clicked.connect(self.open_build_dialog)
         header_layout.addWidget(self.sys_about_btn)
 
+        self.sys_update_btn = QPushButton("🔄 Обновление", self)
+        self.sys_update_btn.setObjectName("secondaryButton")
+        self.sys_update_btn.clicked.connect(self.open_update_dialog)
+        header_layout.addWidget(self.sys_update_btn)
+
         layout.addLayout(header_layout)
 
         # 1. Настройки подключения и статус сервера
@@ -255,6 +260,15 @@ class MainWindow(QMainWindow):
             pass
         dlg = BuildDialog(self, server_build_info=server_info)
         dlg.exec_()
+
+    def open_update_dialog(self):
+        """Открывает диалог проверки и безопасного обновления ПО."""
+        try:
+            from .update_dialog import UpdateDialog
+            dlg = UpdateDialog(self, api_client=self.api)
+            dlg.exec_()
+        except Exception as exc:
+            QMessageBox.critical(self, "Ошибка обновления", f"Не удалось открыть мастер обновления: {exc}")
 
     def update_server_status_indicator(self):
         """Периодически проверяет доступность сервера без блокировки интерфейса."""
