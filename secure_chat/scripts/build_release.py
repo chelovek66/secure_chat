@@ -28,14 +28,14 @@ import subprocess
 import importlib.metadata
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Tuple, Dict, Any
+from typing import Tuple, Dict, Any, Optional
 
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives import serialization
 
 # Конфигурация сборки
 APP_NAME = "SecureClient"
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 MIN_SUPPORTED = "1.0.0"
 OS_NAME = "windows"
 ARCH_NAME = "x64"
@@ -607,6 +607,9 @@ def main():
     print(f"Интерпретатор:      {python_exe}")
     print(f"Каталог релиза:     {release_dir}")
 
+    release_220_dir = project_root / "release_2.2.0"
+    release_220_dir.mkdir(parents=True, exist_ok=True)
+
     # Шаг 1: Ключи Ed25519
     priv_key, pub_key, priv_path, pub_path = get_or_create_ed25519_keys(keys_dir)
 
@@ -650,6 +653,19 @@ def main():
     if not integrity_ok:
         print("[ERROR] Ошибка контроля целостности релиза!")
         sys.exit(1)
+
+    # Синхронизация файлов в папку release_2.2.0
+    for f in [zip_path, manifest_path, manifest_sig_path, sbom_path]:
+        if f.is_file():
+            shutil.copy2(f, release_220_dir / f.name)
+    # Создание относительного манифеста в release_2.2.0 для прямого офлайн-выбора
+    m_220 = json.loads(manifest_path.read_text(encoding="utf-8"))
+    m_220["package_url"] = zip_path.name
+    to_sign = {k: v for k, v in m_220.items() if k != "signature"}
+    can_bytes = json.dumps(to_sign, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    m_220["signature"] = base64.b64encode(priv_key.sign(can_bytes)).decode("ascii")
+    (release_220_dir / "manifest.json").write_text(json.dumps(m_220, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"[RELEASE-2.2.0] Папка {release_220_dir} синхронизирована с собранным релизом!")
 
     print("\n" + "=" * 70)
     print("   РЕЛИЗНЫЙ ПАКЕТ УСПЕШНО СОБРАН И ВЕРИФИЦИРОВАН!")

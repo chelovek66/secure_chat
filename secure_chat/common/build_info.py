@@ -21,9 +21,9 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger("secure_chat.build_info")
 
 APP_NAME = "Secure Chat"
-VERSION = "2.1.0"
-BUILD_NUMBER = 105
-OFFICIAL_RELEASE_DATE = "24.10.2026 09:55:00"
+VERSION = "2.2.0"
+BUILD_NUMBER = 106
+OFFICIAL_RELEASE_DATE = "21.11.2026 09:00:00"
 
 DEFAULT_STB_STANDARDS: List[str] = [
     "Модуль асимметричной криптографии",
@@ -128,7 +128,7 @@ def _detect_crypto_engine() -> str:
 def format_display_date(val: str) -> str:
     """
     Преобразует дату сборки в нормальный человекочитаемый формат:
-    ДД.ММ.ГГГГ ЧЧ:ММ:СС (например: 24.10.2026 09:55:00).
+    ДД.ММ.ГГГГ ЧЧ:ММ:СС (например: 21.11.2026 09:00:00).
     """
     if not val or val == "-":
         return "-"
