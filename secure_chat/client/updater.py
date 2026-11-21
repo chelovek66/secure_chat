@@ -491,14 +491,30 @@ class Updater:
             self.backup_dir.mkdir(parents=True, exist_ok=True)
 
             # Создание резервной копии текущего приложения
+            def _safe_copy_file(src, dst):
+                try:
+                    shutil.copy2(src, dst)
+                except (PermissionError, OSError) as c_err:
+                    logger.debug(f"Пропущен занятый файл при копировании ({src}): {c_err}")
+
+            ignore_backup = shutil.ignore_patterns(
+                ".update_work*", ".git*", "__pycache__", "dist", "build",
+                ".hypothesis", ".pytest_cache", ".sastsca_cache", "release*",
+                "temp_*", ".venv", "venv"
+            )
+
             if self.app_dir.exists():
                 for item in self.app_dir.iterdir():
+                    if item.name.startswith((".update_work", ".git", "__pycache__")) or item.name in (
+                        "dist", "build", ".venv", "venv", ".hypothesis", ".pytest_cache", ".sastsca_cache"
+                    ):
+                        continue
                     dst = self.backup_dir / item.name
                     try:
                         if item.is_dir():
-                            shutil.copytree(item, dst, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".update_work*", ".git*", "__pycache__"))
+                            shutil.copytree(item, dst, dirs_exist_ok=True, ignore=ignore_backup, copy_function=_safe_copy_file)
                         else:
-                            shutil.copy2(item, dst)
+                            _safe_copy_file(item, dst)
                     except (PermissionError, OSError) as b_err:
                         logger.debug(f"Пропущен заблокированный файл при создании бэкапа ({item.name}): {b_err}")
                 backup_created = True
@@ -664,12 +680,18 @@ class Updater:
             raise InstallationError("Каталог резервной копии backup/ отсутствует или пуст")
 
         if self.app_dir.exists():
+            def _safe_restore_copy(src, dst):
+                try:
+                    shutil.copy2(src, dst)
+                except (PermissionError, OSError) as r_err:
+                    logger.debug(f"Пропущен занятый файл при откате ({src}): {r_err}")
+
             for item in self.backup_dir.iterdir():
                 dst = self.app_dir / item.name
                 try:
                     if item.is_dir():
-                        shutil.copytree(item, dst, dirs_exist_ok=True)
+                        shutil.copytree(item, dst, dirs_exist_ok=True, copy_function=_safe_restore_copy)
                     else:
-                        shutil.copy2(item, dst)
+                        _safe_restore_copy(item, dst)
                 except Exception as exc:
                     logger.warning(f"Ошибка при восстановлении файла {dst.name}: {exc}")
